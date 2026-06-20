@@ -15,5 +15,4 @@ class ModelResponse:
 
 
 class ModelProvider(Protocol):
-    async def generate(self, request: ModelRequest) -> ModelResponse:
-        ...
+    async def generate(self, request: ModelRequest) -> ModelResponse: ...

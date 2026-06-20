@@ -1,0 +1,26 @@
+Metadata-Version: 2.4
+Name: enterprisemind-backend
+Version: 0.1.0
+Summary: EnterpriseMind enterprise knowledge assistant backend
+Requires-Python: >=3.12
+Requires-Dist: fastapi==0.115.5
+Requires-Dist: uvicorn[standard]==0.32.1
+Requires-Dist: pydantic==2.10.3
+Requires-Dist: pydantic-settings==2.7.0
+Requires-Dist: httpx==0.28.1
+Requires-Dist: sqlalchemy[asyncio]<2.1,>=2.0
+Requires-Dist: alembic<2,>=1.14
+Requires-Dist: asyncpg<1,>=0.30
+Requires-Dist: pwdlib[argon2]<1,>=0.2
+Requires-Dist: PyJWT<3,>=2.10
+Requires-Dist: python-multipart<1,>=0.0.20
+Requires-Dist: qdrant-client<2,>=1.14
+Requires-Dist: PyMuPDF<2,>=1.25
+Requires-Dist: python-docx<2,>=1.1
+Requires-Dist: redis<7,>=5.2
+Provides-Extra: dev
+Requires-Dist: pytest==8.3.4; extra == "dev"
+Requires-Dist: pytest-asyncio==0.24.0; extra == "dev"
+Requires-Dist: ruff==0.8.4; extra == "dev"
+Requires-Dist: mypy==1.13.0; extra == "dev"
+Requires-Dist: aiosqlite<1,>=0.20; extra == "dev"

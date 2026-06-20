@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: enterprisemind-postgres-dev
+    environment:
+      POSTGRES_DB: enterprisemind
+      POSTGRES_USER: enterprisemind
+      POSTGRES_PASSWORD: enterprisemind
+    ports:
+      - "5432:5432"
+    volumes:
+      - enterprisemind-postgres-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enterprisemind -d enterprisemind"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.14.1
+    container_name: enterprisemind-qdrant-dev
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - enterprisemind-qdrant-dev:/qdrant/storage
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: enterprisemind-redis-dev
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - enterprisemind-redis-dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  enterprisemind-postgres-dev:
+  enterprisemind-qdrant-dev:
+  enterprisemind-redis-dev:

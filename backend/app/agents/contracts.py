@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.knowledge.schemas import Citation
+
 
 class AgentType(StrEnum):
     HR = "hr"
@@ -38,3 +40,5 @@ class OrchestratorResult:
     intent: IntentType
     model: str
     sensitivity: Sensitivity
+    citations: tuple[Citation, ...] = ()
+    refused: bool = False
