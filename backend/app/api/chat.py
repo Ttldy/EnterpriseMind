@@ -1,21 +1,16 @@
-from fastapi import (
-    APIRouter,
-    Depends,
-    Request,
-)
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-)
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.orchestrator import AgentOrchestrator
 from app.auth.dependencies import (
     get_access_context,
     get_current_user,
 )
 from app.auth.models import User
-from app.conversations.service import ConversationService
+from app.conversations.service import (
+    ConversationService,
+)
 from app.knowledge.access import AccessContext
 from app.shared.database import get_session
 
@@ -45,15 +40,23 @@ class ChatResponse(BaseModel):
     agent: str
     intent: str
     model: str
+    provider: str
+    model_route_reason: str
+    external_sent: bool
     sensitivity: str
     trace_id: str
     conversation_id: int
     message_id: int
     refused: bool
     citations: list[CitationResponse]
+    sql: str | None
+    row_count: int | None
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+)
 async def chat(
     body: ChatRequest,
     request: Request,
@@ -87,7 +90,13 @@ async def chat(
         trace_id=request.state.trace_id,
     )
 
-    result = await request.app.state.orchestrator.run(
+    orchestrator = AgentOrchestrator(
+        router=request.app.state.router,
+        gateway=request.app.state.gateway,
+        retrieval=request.app.state.retrieval,
+        data_service=(request.app.state.data_service_factory(session)),
+    )
+    result = await orchestrator.run(
         body.message,
         access,
     )
@@ -108,6 +117,9 @@ async def chat(
         agent=result.agent.value,
         intent=result.intent.value,
         model=result.model,
+        provider=result.provider,
+        model_route_reason=result.route_reason,
+        external_sent=result.external_sent,
         sensitivity=result.sensitivity.value,
         trace_id=request.state.trace_id,
         conversation_id=conversation_id,
@@ -123,4 +135,6 @@ async def chat(
             )
             for item in result.citations
         ],
+        sql=result.sql,
+        row_count=result.row_count,
     )

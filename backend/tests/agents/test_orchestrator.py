@@ -1,29 +1,26 @@
 import pytest
 
-from app.agents.contracts import AgentType
-from app.agents.orchestrator import AgentOrchestrator
+from app.agents.contracts import (
+    AgentType,
+    Sensitivity,
+)
+from app.agents.orchestrator import (
+    AgentOrchestrator,
+)
 from app.agents.router import RuleRouter
 from app.knowledge.access import AccessContext
 from app.knowledge.schemas import Citation
 from app.model_gateway.contracts import (
-    ModelRequest,
-    ModelResponse,
+    GatewayResponse,
 )
 
-
-class FakeProvider:
-    def __init__(self) -> None:
-        self.last_request: ModelRequest | None = None
-
-    async def generate(
-        self,
-        request: ModelRequest,
-    ) -> ModelResponse:
-        self.last_request = request
-        return ModelResponse(
-            text=f"fake answer: {request.user_message}",
-            model="fake-model",
-        )
+ACCESS = AccessContext(
+    user_id=1,
+    department="IT",
+    roles=frozenset({"employee", "it_staff"}),
+    knowledge_base_ids=frozenset({1}),
+    dataset_ids=frozenset(),
+)
 
 
 class FakeRetrieval:
@@ -32,7 +29,6 @@ class FakeRetrieval:
         citations: list[Citation],
     ) -> None:
         self.citations = citations
-        self.last_access: AccessContext | None = None
 
     async def search(
         self,
@@ -40,87 +36,104 @@ class FakeRetrieval:
         access: AccessContext,
         limit: int = 5,
     ) -> list[Citation]:
-        self.last_access = access
         return self.citations[:limit]
 
 
-ACCESS = AccessContext(
-    user_id=1,
-    department="IT",
-    roles=frozenset({"employee"}),
-    knowledge_base_ids=frozenset({1}),
-    dataset_ids=frozenset(),
-)
+class FakeGateway:
+    def __init__(self) -> None:
+        self.sensitivities: list[Sensitivity] = []
+
+    async def generate(
+        self,
+        request,
+        sensitivity: Sensitivity,
+    ) -> GatewayResponse:
+        self.sensitivities.append(sensitivity)
+        return GatewayResponse(
+            text="fake answer",
+            model="fake-model",
+            provider="ollama",
+            route_reason=(f"{sensitivity.value}_requires_local"),
+            external_sent=False,
+        )
+
+
+class FakeDataService:
+    async def answer(
+        self,
+        question: str,
+        access: AccessContext,
+    ):
+        raise PermissionError
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_selects_hr_prompt() -> None:
-    provider = FakeProvider()
-    retrieval = FakeRetrieval(
-        [
-            Citation(
-                document_id=1,
-                filename="员工手册.pdf",
-                page=3,
-                text="正式员工每年享有带薪年假。",
-                score=0.9,
-                sensitivity="internal",
-            )
-        ]
-    )
+async def test_internal_evidence_uses_local() -> None:
+    gateway = FakeGateway()
     orchestrator = AgentOrchestrator(
         router=RuleRouter(),
-        provider=provider,
-        retrieval=retrieval,
+        gateway=gateway,
+        retrieval=FakeRetrieval(
+            [
+                Citation(
+                    document_id=1,
+                    filename="vpn.md",
+                    page=1,
+                    text="先检查网络。",
+                    score=0.9,
+                    sensitivity="internal",
+                )
+            ]
+        ),
+        data_service=FakeDataService(),
     )
 
     result = await orchestrator.run(
-        "年假有几天？",
+        "VPN 无法连接怎么办？",
         ACCESS,
     )
 
-    assert result.agent is AgentType.HR
-    assert result.model == "fake-model"
-    assert provider.last_request is not None
-    assert "人事制度助手" in (provider.last_request.system_prompt)
-    assert "员工手册.pdf" in (provider.last_request.system_prompt)
-    assert retrieval.last_access == ACCESS
+    assert result.agent is AgentType.IT
+    assert result.provider == "ollama"
+    assert result.external_sent is False
+    assert gateway.sensitivities == [Sensitivity.INTERNAL]
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_refuses_without_evidence() -> None:
-    provider = FakeProvider()
+async def test_no_evidence_refuses() -> None:
+    gateway = FakeGateway()
     orchestrator = AgentOrchestrator(
         router=RuleRouter(),
-        provider=provider,
+        gateway=gateway,
         retrieval=FakeRetrieval([]),
+        data_service=FakeDataService(),
     )
 
     result = await orchestrator.run(
-        "年假有几天？",
+        "VPN 无法连接怎么办？",
         ACCESS,
     )
 
     assert result.refused is True
     assert result.model == "none"
-    assert provider.last_request is None
+    assert gateway.sensitivities == []
 
 
 @pytest.mark.asyncio
-async def test_clarification_does_not_call_model() -> None:
-    provider = FakeProvider()
+async def test_unauthorized_data_query_refuses() -> None:
     orchestrator = AgentOrchestrator(
         router=RuleRouter(),
-        provider=provider,
+        gateway=FakeGateway(),
         retrieval=FakeRetrieval([]),
+        data_service=FakeDataService(),
     )
 
     result = await orchestrator.run(
-        "帮我看看这个",
+        "统计各部门报销金额",
         ACCESS,
     )
 
-    assert result.agent is AgentType.CLARIFICATION
-    assert result.model == "none"
-    assert provider.last_request is None
-    assert "补充" in result.answer
+    assert result.agent is AgentType.DATA_ANALYST
+    assert result.refused is True
+    assert result.external_sent is False
+    assert result.sql is None

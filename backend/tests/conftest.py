@@ -29,15 +29,27 @@ async def session_factory(tmp_path):
 @pytest_asyncio.fixture
 async def seeded_session(session_factory):
     async with session_factory() as session:
-        department = Department(name="IT")
+        it_department = Department(name="IT")
+        finance_department = Department(name="FINANCE")
+
         employee = Role(name="employee")
         it_staff = Role(name="it_staff")
-        user = User(
+        finance_staff = Role(name="finance_staff")
+
+        it_user = User(
             username="it01",
             password_hash=hash_password("ItPassw0rd!"),
-            department=department,
+            department=it_department,
             roles=[employee, it_staff],
         )
-        session.add(user)
+        finance_user = User(
+            username="finance01",
+            password_hash=hash_password("FinancePassw0rd!"),
+            department=finance_department,
+            roles=[employee, finance_staff],
+        )
+
+        session.add_all([it_user, finance_user])
         await session.commit()
+
     return session_factory

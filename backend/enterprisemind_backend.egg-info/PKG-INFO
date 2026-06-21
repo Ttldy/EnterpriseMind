@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: enterprisemind-backend
-Version: 0.1.0
+Version: 0.2.0
 Summary: EnterpriseMind enterprise knowledge assistant backend
 Requires-Python: >=3.12
 Requires-Dist: fastapi==0.115.5
@@ -14,10 +14,11 @@ Requires-Dist: asyncpg<1,>=0.30
 Requires-Dist: pwdlib[argon2]<1,>=0.2
 Requires-Dist: PyJWT<3,>=2.10
 Requires-Dist: python-multipart<1,>=0.0.20
-Requires-Dist: qdrant-client<2,>=1.14
+Requires-Dist: qdrant-client<1.16,>=1.14
 Requires-Dist: PyMuPDF<2,>=1.25
 Requires-Dist: python-docx<2,>=1.1
 Requires-Dist: redis<7,>=5.2
+Requires-Dist: sqlglot<30,>=26
 Provides-Extra: dev
 Requires-Dist: pytest==8.3.4; extra == "dev"
 Requires-Dist: pytest-asyncio==0.24.0; extra == "dev"

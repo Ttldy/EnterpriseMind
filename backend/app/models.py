@@ -5,6 +5,10 @@ from app.conversations.models import (
     Feedback,
     Message,
 )
+from app.database_agent.models import (
+    Dataset,
+    DatasetPermission,
+)
 from app.knowledge.models import (
     Document,
     KnowledgeBase,
@@ -14,6 +18,8 @@ from app.knowledge.models import (
 __all__ = [
     "CitationRecord",
     "Conversation",
+    "Dataset",
+    "DatasetPermission",
     "Department",
     "Document",
     "Feedback",

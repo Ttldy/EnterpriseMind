@@ -40,5 +40,10 @@ class OrchestratorResult:
     intent: IntentType
     model: str
     sensitivity: Sensitivity
+    provider: str = "none"
+    route_reason: str = "not_called"
+    external_sent: bool = False
     citations: tuple[Citation, ...] = ()
     refused: bool = False
+    sql: str | None = None
+    row_count: int | None = None

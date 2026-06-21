@@ -9,10 +9,11 @@ asyncpg<1,>=0.30
 pwdlib[argon2]<1,>=0.2
 PyJWT<3,>=2.10
 python-multipart<1,>=0.0.20
-qdrant-client<2,>=1.14
+qdrant-client<1.16,>=1.14
 PyMuPDF<2,>=1.25
 python-docx<2,>=1.1
 redis<7,>=5.2
+sqlglot<30,>=26
 
 [dev]
 pytest==8.3.4

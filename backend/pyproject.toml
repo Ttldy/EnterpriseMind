@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "enterprisemind-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "EnterpriseMind enterprise knowledge assistant backend"
 requires-python = ">=3.12"
 dependencies = [
@@ -23,6 +23,7 @@ dependencies = [
     "PyMuPDF>=1.25,<2",
     "python-docx>=1.1,<2",
     "redis>=5.2,<7",
+    "sqlglot>=26,<30",
 ]
 
 [project.optional-dependencies]

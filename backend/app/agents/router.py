@@ -4,10 +4,16 @@ from app.agents.contracts import (
     RouteResult,
     Sensitivity,
 )
+from app.model_gateway.sensitivity import (
+    classify_question,
+)
 
 
 class RuleRouter:
-    _domain_rules: dict[AgentType, tuple[str, ...]] = {
+    _domain_rules: dict[
+        AgentType,
+        tuple[str, ...],
+    ] = {
         AgentType.HR: (
             "年假",
             "请假",
@@ -15,6 +21,8 @@ class RuleRouter:
             "福利",
             "入职",
             "离职",
+            "办公时间",
+            "公司地址",
         ),
         AgentType.IT: (
             "vpn",
@@ -23,6 +31,7 @@ class RuleRouter:
             "设备",
             "网络",
             "密码",
+            "工单",
         ),
         AgentType.FINANCE: (
             "报销",
@@ -39,9 +48,14 @@ class RuleRouter:
         "汇总",
         "各部门",
         "本月多少",
+        "员工名单",
+        "解决率",
     )
 
-    def route(self, message: str) -> RouteResult:
+    def route(
+        self,
+        message: str,
+    ) -> RouteResult:
         normalized = message.strip().lower()
 
         if self._requires_data_query(normalized):
@@ -53,13 +67,14 @@ class RuleRouter:
                 confidence=0.95,
             )
 
+        question_sensitivity = classify_question(normalized).level
         for agent, keywords in self._domain_rules.items():
             if any(keyword in normalized for keyword in keywords):
                 return RouteResult(
                     agent=agent,
-                    intent=IntentType.KNOWLEDGE_QUERY,
+                    intent=(IntentType.KNOWLEDGE_QUERY),
                     requires_sql=False,
-                    sensitivity=Sensitivity.INTERNAL,
+                    sensitivity=(question_sensitivity),
                     confidence=0.90,
                 )
 
@@ -71,5 +86,8 @@ class RuleRouter:
             confidence=0.20,
         )
 
-    def _requires_data_query(self, message: str) -> bool:
+    def _requires_data_query(
+        self,
+        message: str,
+    ) -> bool:
         return any(word in message for word in self._statistics_words)

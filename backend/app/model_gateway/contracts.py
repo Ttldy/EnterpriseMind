@@ -14,5 +14,17 @@ class ModelResponse:
     model: str
 
 
+@dataclass(frozen=True)
+class GatewayResponse:
+    text: str
+    model: str
+    provider: str
+    route_reason: str
+    external_sent: bool
+
+
 class ModelProvider(Protocol):
-    async def generate(self, request: ModelRequest) -> ModelResponse: ...
+    async def generate(
+        self,
+        request: ModelRequest,
+    ) -> ModelResponse: ...
