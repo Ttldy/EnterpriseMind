@@ -6,3 +6,10 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+docs/
+
+backend/.tokens/
+backend/.http-state.json
+backend/.it-token
+backend/.finance-token
+backend/.admin-token
