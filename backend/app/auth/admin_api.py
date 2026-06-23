@@ -62,7 +62,7 @@ async def load_user(
     session: AsyncSession,
     user_id: int,
 ) -> User | None:
-    return await session.scalar(
+    user: User | None = await session.scalar(
         select(User)
         .where(User.id == user_id)
         .options(
@@ -70,6 +70,7 @@ async def load_user(
             selectinload(User.roles),
         )
     )
+    return user
 
 
 async def load_department_and_roles(

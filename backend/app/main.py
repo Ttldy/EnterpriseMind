@@ -9,9 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.router import RuleRouter
 from app.api.chat import router as chat_router
+from app.api.chat_stream import (
+    router as chat_stream_router,
+)
 from app.api.health import router as health_router
-from app.auth.api import router as auth_router
 from app.auth.admin_api import router as user_admin_router
+from app.auth.api import router as auth_router
 from app.conversations.api import (
     router as conversations_router,
 )
@@ -41,9 +44,6 @@ from app.model_gateway.contracts import ModelProvider
 from app.model_gateway.demo import DemoProvider
 from app.model_gateway.external import (
     ExternalModelProvider,
-)
-from app.api.chat_stream import (
-    router as chat_stream_router,
 )
 from app.model_gateway.gateway import ModelGateway
 from app.model_gateway.ollama import OllamaProvider
