@@ -128,3 +128,47 @@ async def add_feedback(
             detail="message not found",
         ) from exc
     return {"id": feedback.id}
+
+@router.get("/{conversation_id}")
+async def get_conversation(
+    conversation_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    try:
+        conversation = await service_from_request(
+            request,
+            session,
+        ).get(conversation_id, user.id)
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="conversation not found",
+        ) from exc
+
+    return {
+        "id": conversation.id,
+        "title": conversation.title,
+        "messages": [
+            {
+                "id": message.id,
+                "role": message.role,
+                "content": message.content,
+                "agent": message.agent,
+                "model": message.model,
+                "trace_id": message.trace_id,
+                "citations": [
+                    {
+                        "document_id": citation.document_id,
+                        "filename": citation.filename,
+                        "page": citation.page,
+                        "text": citation.text,
+                        "score": citation.score,
+                    }
+                    for citation in message.citations
+                ],
+            }
+            for message in conversation.messages
+        ],
+    }

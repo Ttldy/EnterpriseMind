@@ -13,3 +13,11 @@ backend/.http-state.json
 backend/.it-token
 backend/.finance-token
 backend/.admin-token
+
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.npm-cache/
+frontend/playwright-report/
+frontend/test-results/
+frontend/*.local

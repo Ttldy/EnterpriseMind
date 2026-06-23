@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from app.agents.router import RuleRouter
 from app.api.chat import router as chat_router
 from app.api.health import router as health_router
 from app.auth.api import router as auth_router
+from app.auth.admin_api import router as user_admin_router
 from app.conversations.api import (
     router as conversations_router,
 )
@@ -39,6 +41,9 @@ from app.model_gateway.contracts import ModelProvider
 from app.model_gateway.demo import DemoProvider
 from app.model_gateway.external import (
     ExternalModelProvider,
+)
+from app.api.chat_stream import (
+    router as chat_stream_router,
 )
 from app.model_gateway.gateway import ModelGateway
 from app.model_gateway.ollama import OllamaProvider
@@ -115,6 +120,24 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.frontend_origin_list,
+        allow_credentials=False,
+        allow_methods=[
+            "GET",
+            "POST",
+            "PATCH",
+            "DELETE",
+            "OPTIONS",
+        ],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+        ],
+        expose_headers=["X-Trace-ID"],
+    )
+
     app.state.vector_store = vector_store
     app.state.message_cache = RedisRecentMessageCache(redis)
 
@@ -153,6 +176,14 @@ def create_app() -> FastAPI:
     )
     app.include_router(
         conversations_router,
+        prefix="/api/v1",
+    )
+    app.include_router(
+        user_admin_router,
+        prefix="/api/v1",
+    )
+    app.include_router(
+        chat_stream_router,
         prefix="/api/v1",
     )
     return app

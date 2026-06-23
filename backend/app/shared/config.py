@@ -15,8 +15,26 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "EnterpriseMind"
+
+    # 前端允许访问后端的来源，多个地址使用逗号分隔
+    frontend_origins: str = (
+        "http://127.0.0.1:5173,"
+        "http://localhost:5173"
+    )
+
+    @property
+    def frontend_origin_list(self) -> list[str]:
+        """将逗号分隔的前端来源转换为列表。"""
+        return [
+            item.strip()
+            for item in self.frontend_origins.split(",")
+            if item.strip()
+        ]
+
     database_url: str = (
-        "postgresql+asyncpg://" "enterprisemind:enterprisemind" "@127.0.0.1:5432/enterprisemind"
+        "postgresql+asyncpg://"
+        "enterprisemind:enterprisemind"
+        "@127.0.0.1:5432/enterprisemind"
     )
     readonly_database_url: str = (
         "postgresql+asyncpg://"
@@ -41,7 +59,9 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:3b"
     ollama_timeout_seconds: float = 120.0
 
-    external_model_base_url: str = "https://api.example.com/v1"
+    external_model_base_url: str = (
+        "https://api.example.com/v1"
+    )
     external_model_api_key: str = ""
     external_model_name: str = "external-chat-model"
     external_model_timeout_seconds: float = 30.0
