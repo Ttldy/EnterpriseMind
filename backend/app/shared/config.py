@@ -47,13 +47,28 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
 
     qdrant_url: str = "http://127.0.0.1:6333"
-    qdrant_collection: str = "enterprise_knowledge"
-    embedding_dimensions: int = 384
+    qdrant_collection: str = "enterprise_knowledge_bge_m3_v1"
+    embedding_dimensions: int = 1024
+    ollama_embedding_model: str = "bge-m3"
+    ollama_embedding_timeout_seconds: float = 60.0
     retrieval_minimum_score: float = 0.20
+    retrieval_full_answer_score: float = 0.45
+    retrieval_partial_answer_score: float = 0.20
+    retrieval_minimum_hit_count: int = 1
+    retrieval_rerank_candidates: int = 8
 
     redis_url: str = "redis://127.0.0.1:6379/0"
+    rq_document_queue: str = "document_ingestion"
+    rq_job_timeout_seconds: int = 300
+    rq_result_ttl_seconds: int = 86400
+
     upload_directory: Path = Path("uploads")
     maximum_upload_bytes: int = 10 * 1024 * 1024
+
+    evaluation_case_directory: Path = Path(
+        "evaluation/cases"
+    )
+    evaluation_maximum_drop: float = 0.03
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:3b"

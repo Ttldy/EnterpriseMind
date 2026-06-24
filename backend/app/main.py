@@ -30,12 +30,18 @@ from app.database_agent.repository import (
     SqlAlchemyDatasetRepository,
 )
 from app.database_agent.service import DataQueryService
+from app.evaluation.api import (
+    router as evaluation_router,
+)
 from app.knowledge.api import (
     router as knowledge_router,
 )
 from app.knowledge.embedding import (
-    HashEmbeddingProvider,
+    OllamaEmbeddingProvider,
 )
+from app.knowledge.evidence_gate import EvidenceGate
+from app.knowledge.query_rewriter import QueryRewriter
+from app.knowledge.reranker import SensitiveAwareReranker
 from app.knowledge.retrieval import RetrievalService
 from app.knowledge.vector_store import (
     QdrantVectorStore,
@@ -55,17 +61,17 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     qdrant_client = AsyncQdrantClient(url=settings.qdrant_url)
-    embedding = HashEmbeddingProvider(dimensions=settings.embedding_dimensions)
+    embedding = OllamaEmbeddingProvider(
+        base_url=settings.ollama_base_url,
+        model=settings.ollama_embedding_model,
+        dimensions=settings.embedding_dimensions,
+        timeout_seconds=(settings.ollama_embedding_timeout_seconds),
+    )
     vector_store = QdrantVectorStore(
         client=qdrant_client,
         collection_name=settings.qdrant_collection,
         embedding=embedding,
     )
-    retrieval = RetrievalService(
-        store=vector_store,
-        minimum_score=(settings.retrieval_minimum_score),
-    )
-
     redis = Redis.from_url(
         settings.redis_url,
         decode_responses=True,
@@ -91,6 +97,20 @@ def create_app() -> FastAPI:
         local=local_provider,
         external=external_provider,
         allow_external_for_internal=(settings.allow_external_for_internal),
+    )
+    retrieval = RetrievalService(
+        store=vector_store,
+        minimum_score=(settings.retrieval_minimum_score),
+        rewriter=QueryRewriter(gateway),
+        reranker=SensitiveAwareReranker(
+            gateway,
+            maximum_candidates=(settings.retrieval_rerank_candidates),
+        ),
+        gate=EvidenceGate(
+            full_answer_score=(settings.retrieval_full_answer_score),
+            partial_answer_score=(settings.retrieval_partial_answer_score),
+            minimum_hit_count=(settings.retrieval_minimum_hit_count),
+        ),
     )
 
     readonly_engine = create_readonly_engine(settings.readonly_database_url)
@@ -184,6 +204,10 @@ def create_app() -> FastAPI:
     )
     app.include_router(
         chat_stream_router,
+        prefix="/api/v1",
+    )
+    app.include_router(
+        evaluation_router,
         prefix="/api/v1",
     )
     return app

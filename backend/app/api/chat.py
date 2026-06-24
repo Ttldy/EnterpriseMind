@@ -11,6 +11,8 @@ from app.auth.models import User
 from app.conversations.service import (
     ConversationService,
 )
+from app.evaluation.prompt_service import PromptService
+from app.evaluation.resolver import DatabasePromptResolver
 from app.knowledge.access import AccessContext
 from app.shared.database import get_session
 
@@ -95,6 +97,9 @@ async def chat(
         gateway=request.app.state.gateway,
         retrieval=request.app.state.retrieval,
         data_service=(request.app.state.data_service_factory(session)),
+        prompts=DatabasePromptResolver(
+            PromptService(session)
+        ),
     )
     result = await orchestrator.run(
         body.message,

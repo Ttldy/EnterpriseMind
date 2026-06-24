@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import {
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+} from "vue";
 import {
   ElMessage,
   ElMessageBox,
@@ -29,6 +34,7 @@ const createVisible = ref(false);
 const permissionVisible = ref(false);
 const uploadVisible = ref(false);
 const selectedFile = ref<File | null>(null);
+let documentPollTimer: number | null = null;
 
 const baseForm = reactive({
   name: "",
@@ -99,13 +105,56 @@ function chooseFile(file: UploadFile): void {
   selectedFile.value = file.raw ?? null;
 }
 
+function stopDocumentPolling(): void {
+  if (documentPollTimer !== null) {
+    window.clearInterval(documentPollTimer);
+    documentPollTimer = null;
+  }
+}
+
+function startDocumentPolling(
+  knowledgeBaseId: number,
+  documentId: number,
+): void {
+  stopDocumentPolling();
+  documentPollTimer = window.setInterval(
+    async () => {
+      try {
+        if (activeBaseId.value !== knowledgeBaseId) {
+          stopDocumentPolling();
+          return;
+        }
+
+        const rows = await fetchDocuments(
+          knowledgeBaseId,
+        );
+        documents.value = rows;
+        const current = rows.find(
+          (item) => item.id === documentId,
+        );
+        if (
+          current &&
+          ["READY", "FAILED"].includes(current.status)
+        ) {
+          stopDocumentPolling();
+          await loadBases();
+        }
+      } catch (error) {
+        stopDocumentPolling();
+        ElMessage.error(errorMessage(error));
+      }
+    },
+    2000,
+  );
+}
+
 async function submitUpload(): Promise<void> {
   if (!activeBaseId.value || !selectedFile.value) {
     ElMessage.warning("请选择文件");
     return;
   }
   try {
-    await uploadDocument(
+    const accepted = await uploadDocument(
       activeBaseId.value,
       selectedFile.value,
     );
@@ -113,7 +162,13 @@ async function submitUpload(): Promise<void> {
     selectedFile.value = null;
     await selectBase(activeBaseId.value);
     await loadBases();
-    ElMessage.success("文件上传并入库成功");
+    ElMessage.success(
+      `文件已进入队列：${accepted.job_id}`,
+    );
+    startDocumentPolling(
+      activeBaseId.value,
+      accepted.id,
+    );
   } catch (error) {
     ElMessage.error(errorMessage(error));
   }
@@ -133,6 +188,7 @@ async function deleteFile(id: number): Promise<void> {
 }
 
 onMounted(loadBases);
+onUnmounted(stopDocumentPolling);
 </script>
 
 <template>

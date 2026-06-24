@@ -11,6 +11,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
+from redis import Redis
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -21,6 +22,9 @@ from app.auth.dependencies import (
 )
 from app.auth.models import User
 from app.knowledge.access import AccessContext
+from app.knowledge.job_service import (
+    DocumentJobService,
+)
 from app.knowledge.models import (
     Document,
     KnowledgeBase,
@@ -29,7 +33,7 @@ from app.knowledge.models import (
 from app.knowledge.service import (
     DuplicateDocumentError,
     InvalidUploadError,
-    save_and_index_document,
+    save_document,
 )
 from app.shared.config import get_settings
 from app.shared.database import get_session
@@ -60,6 +64,12 @@ class DocumentResponse(BaseModel):
     status: str
     sensitivity: str
     error_message: str | None
+
+class DocumentAcceptedResponse(BaseModel):
+    id: int
+    filename: str
+    status: str
+    job_id: str
 
 
 @router.post("/bases")
@@ -110,33 +120,59 @@ async def add_permission(
 
 @router.post(
     "/bases/{knowledge_base_id}/documents",
-    response_model=DocumentResponse,
+    response_model=DocumentAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def upload_document(
     knowledge_base_id: int,
-    request: Request,
     file: UploadFile = File(...),
     _: User = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
-) -> Document:
+) -> DocumentAcceptedResponse:
+    settings = get_settings()
     try:
-        return await save_and_index_document(
+        document = await save_document(
             session=session,
-            vector_store=request.app.state.vector_store,
-            settings=get_settings(),
+            settings=settings,
             knowledge_base_id=knowledge_base_id,
             upload=file,
         )
     except DuplicateDocumentError as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
+            status_code=409,
             detail=str(exc),
         ) from exc
     except InvalidUploadError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=str(exc),
         ) from exc
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        job = DocumentJobService(
+            redis,
+            settings,
+        ).enqueue(
+            document.id,
+            document.sha256,
+        )
+    finally:
+        redis.close()
+
+    document.job_id = job.id
+    await session.commit()
+    return DocumentAcceptedResponse(
+        id=document.id,
+        filename=document.filename,
+        status=document.status,
+        job_id=job.id,
+    )
 
 
 @router.get("/documents/{document_id}/source")
@@ -269,3 +305,49 @@ async def delete_document(
 
     if path.exists():
         path.unlink()
+
+@router.get("/jobs/{job_id}")
+async def get_job(
+    job_id: str,
+    _: User = Depends(require_role("admin")),
+) -> dict[str, object]:
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        value = DocumentJobService(
+            redis,
+            settings,
+        ).status(job_id)
+    finally:
+        redis.close()
+    return {
+        "id": value.id,
+        "status": value.status,
+        "attempts": value.attempts,
+    }
+
+
+@router.post("/jobs/{job_id}/retry")
+async def retry_job(
+    job_id: str,
+    _: User = Depends(require_role("admin")),
+) -> dict[str, object]:
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        value = DocumentJobService(
+            redis,
+            settings,
+        ).retry(job_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+    finally:
+        redis.close()
+    return {
+        "id": value.id,
+        "status": value.status,
+        "attempts": value.attempts,
+    }

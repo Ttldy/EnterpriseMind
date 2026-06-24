@@ -18,6 +18,7 @@ Requires-Dist: qdrant-client<1.16,>=1.14
 Requires-Dist: PyMuPDF<2,>=1.25
 Requires-Dist: python-docx<2,>=1.1
 Requires-Dist: redis<7,>=5.2
+Requires-Dist: rq==2.10.0
 Requires-Dist: sqlglot<30,>=26
 Provides-Extra: dev
 Requires-Dist: pytest==8.3.4; extra == "dev"

@@ -13,6 +13,7 @@ qdrant-client<1.16,>=1.14
 PyMuPDF<2,>=1.25
 python-docx<2,>=1.1
 redis<7,>=5.2
+rq==2.10.0
 sqlglot<30,>=26
 
 [dev]

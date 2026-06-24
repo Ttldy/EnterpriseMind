@@ -15,7 +15,9 @@ from app.database_agent.service import (
 from app.database_agent.validator import (
     UnsafeSqlError,
 )
+from app.evaluation.resolver import PromptResolver
 from app.knowledge.access import AccessContext
+from app.knowledge.evidence_gate import EvidenceLevel
 from app.knowledge.retrieval import RetrievalService
 from app.knowledge.schemas import Citation
 from app.model_gateway.contracts import ModelRequest
@@ -36,11 +38,13 @@ class AgentOrchestrator:
         gateway: ModelGateway,
         retrieval: RetrievalService,
         data_service: DataQueryService,
+        prompts: PromptResolver,
     ) -> None:
         self._router = router
         self._gateway = gateway
         self._retrieval = retrieval
         self._data_service = data_service
+        self._prompts = prompts
 
     async def run(
         self,
@@ -51,7 +55,7 @@ class AgentOrchestrator:
 
         if route.agent is AgentType.CLARIFICATION:
             return OrchestratorResult(
-                answer=("请补充问题所属领域和具体需求。"),
+                answer="请补充问题所属领域和具体需求。",
                 agent=route.agent,
                 intent=route.intent,
                 model="none",
@@ -84,7 +88,7 @@ class AgentOrchestrator:
             )
         except PermissionError:
             return OrchestratorResult(
-                answer=("当前账号没有可用于该问题的" "授权数据集。"),
+                answer="当前账号没有可用于该问题的授权数据集。",
                 agent=AgentType.DATA_ANALYST,
                 intent=self._router.route(message).intent,
                 model="none",
@@ -96,7 +100,7 @@ class AgentOrchestrator:
             UnsafeSqlError,
         ):
             return OrchestratorResult(
-                answer=("生成的查询没有通过安全校验，" "本次请求未执行。"),
+                answer="生成的查询没有通过安全校验，本次请求未执行。",
                 agent=AgentType.DATA_ANALYST,
                 intent=self._router.route(message).intent,
                 model="none",
@@ -105,7 +109,10 @@ class AgentOrchestrator:
             )
         except SensitiveModelUnavailable:
             return OrchestratorResult(
-                answer=("本地模型暂时不可用，" "为避免敏感数据外发，" "本次请求已拒绝。"),
+                answer=(
+                    "本地模型暂时不可用，为避免敏感数据外发，"
+                    "本次请求已拒绝。"
+                ),
                 agent=AgentType.DATA_ANALYST,
                 intent=self._router.route(message).intent,
                 model="none",
@@ -134,13 +141,18 @@ class AgentOrchestrator:
         intent: IntentType,
         route_sensitivity: Sensitivity,
     ) -> OrchestratorResult:
-        citations = await self._retrieval.search(
+        retrieval_result = await self._retrieval.retrieve(
             message,
             access,
         )
-        if not citations:
+        decision = retrieval_result.decision
+        citations = decision.citations
+        if decision.level is EvidenceLevel.INSUFFICIENT:
             return OrchestratorResult(
-                answer=("当前有权限访问的知识库中" "没有足够证据回答该问题。"),
+                answer=(
+                    decision.notice
+                    or "当前有权限访问的知识库中没有足够证据回答该问题。"
+                ),
                 agent=agent,
                 intent=intent,
                 model="none",
@@ -156,12 +168,23 @@ class AgentOrchestrator:
         )
 
         context = self._format_citations(citations)
+        prompt_key = {
+            AgentType.HR: "hr_agent",
+            AgentType.IT: "it_agent",
+            AgentType.FINANCE: "finance_agent",
+        }[agent]
+        agent_prompt = await self._prompts.resolve(
+            prompt_key,
+            PROMPTS[agent],
+        )
         system_prompt = (
-            f"{PROMPTS[agent]}\n\n"
+            f"{agent_prompt}\n\n"
             "必须只根据以下企业知识片段回答。"
             "证据不足时明确说明无法确认。\n\n"
             f"{context}"
         )
+        if decision.level is EvidenceLevel.PARTIAL and decision.notice:
+            system_prompt = f"{system_prompt}\n\n{decision.notice}"
 
         try:
             response = await self._gateway.generate(
@@ -173,7 +196,10 @@ class AgentOrchestrator:
             )
         except SensitiveModelUnavailable:
             return OrchestratorResult(
-                answer=("本地模型暂时不可用，" "为避免受保护内容外发，" "本次请求已拒绝。"),
+                answer=(
+                    "本地模型暂时不可用，为避免受保护内容外发，"
+                    "本次请求已拒绝。"
+                ),
                 agent=agent,
                 intent=intent,
                 model="none",
@@ -181,8 +207,12 @@ class AgentOrchestrator:
                 refused=True,
             )
 
+        answer = response.text
+        if decision.level is EvidenceLevel.PARTIAL and decision.notice:
+            answer = f"{decision.notice}\n\n{answer}"
+
         return OrchestratorResult(
-            answer=response.text,
+            answer=answer,
             agent=agent,
             intent=intent,
             model=response.model,

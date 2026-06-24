@@ -9,6 +9,11 @@ from app.agents.orchestrator import (
 )
 from app.agents.router import RuleRouter
 from app.knowledge.access import AccessContext
+from app.knowledge.evidence_gate import (
+    EvidenceDecision,
+    EvidenceLevel,
+)
+from app.knowledge.retrieval import EnhancedRetrievalResult
 from app.knowledge.schemas import Citation
 from app.model_gateway.contracts import (
     GatewayResponse,
@@ -23,25 +28,44 @@ ACCESS = AccessContext(
 )
 
 
+def citation(
+    sensitivity: str = "internal",
+) -> Citation:
+    return Citation(
+        document_id=1,
+        filename="vpn.md",
+        page=1,
+        text="VPN 无法连接时先检查网络，再确认账号状态。",
+        score=0.9,
+        sensitivity=sensitivity,
+    )
+
+
 class FakeRetrieval:
     def __init__(
         self,
-        citations: list[Citation],
+        decision: EvidenceDecision,
     ) -> None:
-        self.citations = citations
+        self.decision = decision
 
-    async def search(
+    async def retrieve(
         self,
         query: str,
         access: AccessContext,
         limit: int = 5,
-    ) -> list[Citation]:
-        return self.citations[:limit]
+    ) -> EnhancedRetrievalResult:
+        del query, access, limit
+        return EnhancedRetrievalResult(
+            queries=("vpn没有连接怎么办？", "VPN 无法连接怎么办？"),
+            candidates=(),
+            decision=self.decision,
+        )
 
 
 class FakeGateway:
     def __init__(self) -> None:
         self.sensitivities: list[Sensitivity] = []
+        self.messages: list[str] = []
 
     async def generate(
         self,
@@ -49,6 +73,7 @@ class FakeGateway:
         sensitivity: Sensitivity,
     ) -> GatewayResponse:
         self.sensitivities.append(sensitivity)
+        self.messages.append(request.system_prompt)
         return GatewayResponse(
             text="fake answer",
             model="fake-model",
@@ -64,32 +89,48 @@ class FakeDataService:
         question: str,
         access: AccessContext,
     ):
+        del question, access
         raise PermissionError
+
+
+class FakePromptResolver:
+    async def resolve(
+        self,
+        prompt_key: str,
+        fallback: str,
+    ) -> str:
+        del prompt_key
+        return fallback
+
+
+def orchestrator(
+    retrieval: FakeRetrieval,
+    gateway: FakeGateway,
+) -> AgentOrchestrator:
+    return AgentOrchestrator(
+        router=RuleRouter(),
+        gateway=gateway,
+        retrieval=retrieval,
+        data_service=FakeDataService(),
+        prompts=FakePromptResolver(),
+    )
 
 
 @pytest.mark.asyncio
 async def test_internal_evidence_uses_local() -> None:
     gateway = FakeGateway()
-    orchestrator = AgentOrchestrator(
-        router=RuleRouter(),
-        gateway=gateway,
-        retrieval=FakeRetrieval(
-            [
-                Citation(
-                    document_id=1,
-                    filename="vpn.md",
-                    page=1,
-                    text="先检查网络。",
-                    score=0.9,
-                    sensitivity="internal",
-                )
-            ]
+    app = orchestrator(
+        FakeRetrieval(
+            EvidenceDecision(
+                level=EvidenceLevel.FULL,
+                citations=[citation()],
+            )
         ),
-        data_service=FakeDataService(),
+        gateway,
     )
 
-    result = await orchestrator.run(
-        "VPN 无法连接怎么办？",
+    result = await app.run(
+        "vpn没有连接怎么办？",
         ACCESS,
     )
 
@@ -100,17 +141,45 @@ async def test_internal_evidence_uses_local() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_evidence_refuses() -> None:
+async def test_partial_evidence_adds_boundary_notice() -> None:
     gateway = FakeGateway()
-    orchestrator = AgentOrchestrator(
-        router=RuleRouter(),
-        gateway=gateway,
-        retrieval=FakeRetrieval([]),
-        data_service=FakeDataService(),
+    app = orchestrator(
+        FakeRetrieval(
+            EvidenceDecision(
+                level=EvidenceLevel.PARTIAL,
+                citations=[citation()],
+                notice="证据有限，以下回答只基于当前可访问知识库中的相关片段。",
+            )
+        ),
+        gateway,
     )
 
-    result = await orchestrator.run(
-        "VPN 无法连接怎么办？",
+    result = await app.run(
+        "vpn没有连接怎么办？",
+        ACCESS,
+    )
+
+    assert result.answer.startswith("证据有限")
+    assert result.refused is False
+    assert gateway.sensitivities == [Sensitivity.INTERNAL]
+
+
+@pytest.mark.asyncio
+async def test_no_evidence_refuses_without_calling_model() -> None:
+    gateway = FakeGateway()
+    app = orchestrator(
+        FakeRetrieval(
+            EvidenceDecision(
+                level=EvidenceLevel.INSUFFICIENT,
+                citations=[],
+                notice="当前有权限访问的知识库中没有足够证据回答该问题。",
+            )
+        ),
+        gateway,
+    )
+
+    result = await app.run(
+        "vpn没有连接怎么办？",
         ACCESS,
     )
 
@@ -121,14 +190,17 @@ async def test_no_evidence_refuses() -> None:
 
 @pytest.mark.asyncio
 async def test_unauthorized_data_query_refuses() -> None:
-    orchestrator = AgentOrchestrator(
-        router=RuleRouter(),
-        gateway=FakeGateway(),
-        retrieval=FakeRetrieval([]),
-        data_service=FakeDataService(),
+    app = orchestrator(
+        FakeRetrieval(
+            EvidenceDecision(
+                level=EvidenceLevel.INSUFFICIENT,
+                citations=[],
+            )
+        ),
+        FakeGateway(),
     )
 
-    result = await orchestrator.run(
+    result = await app.run(
         "统计各部门报销金额",
         ACCESS,
     )

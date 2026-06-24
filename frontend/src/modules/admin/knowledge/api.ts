@@ -25,6 +25,19 @@ export interface DocumentRow {
   created_at: string;
 }
 
+export interface DocumentAccepted {
+  id: number;
+  filename: string;
+  status: string;
+  job_id: string;
+}
+
+export interface JobStatus {
+  id: string;
+  status: string;
+  attempts: number;
+}
+
 export async function fetchKnowledgeBases(): Promise<
   KnowledgeBaseRow[]
 > {
@@ -78,12 +91,31 @@ export async function fetchDocuments(
 export async function uploadDocument(
   knowledgeBaseId: number,
   file: File,
-): Promise<DocumentRow> {
+): Promise<DocumentAccepted> {
   const form = new FormData();
   form.append("file", file);
-  const response = await api.post<DocumentRow>(
-    `/knowledge/bases/${knowledgeBaseId}/documents`,
-    form,
+  const response =
+    await api.post<DocumentAccepted>(
+      `/knowledge/bases/${knowledgeBaseId}/documents`,
+      form,
+    );
+  return response.data;
+}
+
+export async function fetchJob(
+  jobId: string,
+): Promise<JobStatus> {
+  const response = await api.get<JobStatus>(
+    `/knowledge/jobs/${jobId}`,
+  );
+  return response.data;
+}
+
+export async function retryJob(
+  jobId: string,
+): Promise<JobStatus> {
+  const response = await api.post<JobStatus>(
+    `/knowledge/jobs/${jobId}/retry`,
   );
   return response.data;
 }

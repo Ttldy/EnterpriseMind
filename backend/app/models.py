@@ -9,6 +9,10 @@ from app.database_agent.models import (
     Dataset,
     DatasetPermission,
 )
+from app.evaluation.models import (
+    EvaluationRun,
+    PromptVersion,
+)
 from app.knowledge.models import (
     Document,
     KnowledgeBase,
@@ -26,6 +30,8 @@ __all__ = [
     "KnowledgeBase",
     "KnowledgePermission",
     "Message",
+    "EvaluationRun",
+    "PromptVersion",
     "Role",
     "User",
 ]

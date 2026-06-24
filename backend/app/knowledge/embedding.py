@@ -2,11 +2,68 @@ import hashlib
 import math
 from typing import Protocol
 
+import httpx
+
 
 class EmbeddingProvider(Protocol):
     dimensions: int
 
     async def embed(self, text: str) -> list[float]: ...
+
+
+class EmbeddingError(RuntimeError):
+    pass
+
+
+class OllamaEmbeddingProvider:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        dimensions: int,
+        timeout_seconds: float,
+    ) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._model = model
+        self.dimensions = dimensions
+        self._timeout_seconds = timeout_seconds
+
+    async def embed(self, text: str) -> list[float]:
+        normalized = text.strip()
+        if not normalized:
+            return [0.0] * self.dimensions
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout_seconds,
+            ) as client:
+                response = await client.post(
+                    f"{self._base_url}/api/embed",
+                    json={
+                        "model": self._model,
+                        "input": normalized,
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            raise EmbeddingError("Ollama embedding request failed") from exc
+
+        embeddings = payload.get("embeddings")
+        if not isinstance(embeddings, list) or not embeddings:
+            raise EmbeddingError("Ollama embedding response has no embeddings")
+
+        vector = embeddings[0]
+        if not isinstance(vector, list):
+            raise EmbeddingError("Ollama embedding vector is invalid")
+
+        values = [float(item) for item in vector]
+        if len(values) != self.dimensions:
+            raise EmbeddingError(
+                "Ollama embedding dimension mismatch: "
+                f"expected {self.dimensions}, got {len(values)}"
+            )
+        return values
 
 
 class HashEmbeddingProvider:

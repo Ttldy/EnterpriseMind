@@ -25,13 +25,7 @@ def print_response(
     response: httpx.Response,
 ) -> None:
     try:
-        print(
-            json.dumps(
-                response.json(),
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        print_json(response.json())
     except ValueError:
         print_json(
             {
@@ -70,20 +64,24 @@ def save_token(
 def load_token(username: str) -> str:
     path = token_path(username)
     if not path.exists():
-        raise FileNotFoundError(f"未找到 {path}。请先运行登录脚本。")
+        raise FileNotFoundError(
+            f"未找到 {path}。请先运行登录脚本保存 Token。"
+        )
     return path.read_text(encoding="utf-8").strip()
 
 
 def auth_headers(
     username: str,
 ) -> dict[str, str]:
-    return {"Authorization": (f"Bearer {load_token(username)}")}
+    return {"Authorization": f"Bearer {load_token(username)}"}
 
 
 def load_state() -> dict[str, Any]:
     if not STATE_PATH.exists():
         return {}
-    return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    return json.loads(
+        STATE_PATH.read_text(encoding="utf-8")
+    )
 
 
 def save_state_value(
@@ -105,5 +103,7 @@ def save_state_value(
 def require_integer_state(key: str) -> int:
     value = load_state().get(key)
     if not isinstance(value, int):
-        raise RuntimeError(f"{key} 不存在或不是整数。" "请先运行产生该 ID 的脚本。")
+        raise RuntimeError(
+            f"{key} 不存在或不是整数。请先运行产生该 ID 的脚本。"
+        )
     return value

@@ -1,0 +1,3 @@
+{"case_id":"quality-001","category":"quality","prompt_key":"finance_agent","question":"报销需要哪些材料？","expected_agent":"finance","expected_keywords":["发票","材料"],"expected_citation":"报销制度.pdf","should_refuse":false}
+{"case_id":"quality-002","category":"quality","prompt_key":"finance_agent","question":"公司制度没有说明的报销特例是什么？","expected_agent":"finance","should_refuse":true}
+{"case_id":"quality-003","category":"quality","prompt_key":"finance_agent","question":"差旅发票如何提交？","expected_agent":"finance","expected_keywords":["发票","提交"],"should_refuse":false}
