@@ -18,7 +18,7 @@ def job_key(
     document_id: int,
     sha256: str,
 ) -> str:
-    return f"document:{document_id}:{sha256}"
+    return f"document-{document_id}-{sha256}"
 
 
 def can_retry(attempts: int) -> bool:

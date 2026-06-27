@@ -85,29 +85,46 @@ def upload(
     save_state_value(state_key, document_id)
 
 
+def demo_fixture_contents() -> dict[str, str]:
+    return {
+        "public-company-info.md": (
+            "# 公司公开信息\n\n"
+            "公司办公时间为工作日 9:00 至 18:00。\n"
+            "公司地址为上海市示例路 100 号。\n"
+        ),
+        "annual-leave-policy.md": (
+            "# 员工年假申请制度\n\n"
+            "员工申请年假时，应至少提前 2 个工作日在 OA 系统提交请假申请，"
+            "填写请假日期、天数和工作交接人。\n"
+            "申请先由直属主管审批；连续请假 3 个工作日及以上时，还需 HR 复核。\n"
+            "年假余额以 OA 系统显示为准，余额不足时不得提交年假申请。\n"
+        ),
+        "expense-policy.md": (
+            "# 员工费用报销制度\n\n"
+            "员工报销时需在 OA 系统填写费用类型、金额、发生日期和业务事由。\n"
+            "申请应附合法有效发票；差旅报销还需附行程单或车票、酒店订单等材料。\n"
+            "提交后先由部门负责人审批，再由财务审核发票和金额。\n"
+        ),
+        "internal-vpn-guide.md": (
+            "# VPN 内部处理手册\n\n"
+            "VPN 无法连接时，先确认本地网络正常，"
+            "再检查企业账号是否被锁定。"
+            "仍然失败时联系 IT 服务台。\n"
+        ),
+    }
+
+
 def main() -> None:
     fixture_directory = BACKEND_ROOT / "tests" / "fixtures"
     fixture_directory.mkdir(
         parents=True,
         exist_ok=True,
     )
-
-    public_file = fixture_directory / "public-company-info.md"
-    public_file.write_text(
-        "# 公司公开信息\n\n"
-        "公司办公时间为工作日 9:00 至 18:00。\n"
-        "公司地址为上海市示例路 100 号。\n",
-        encoding="utf-8",
-    )
-
-    it_file = fixture_directory / "internal-vpn-guide.md"
-    it_file.write_text(
-        "# VPN 内部处理手册\n\n"
-        "VPN 无法连接时，先确认本地网络正常，"
-        "再检查企业账号是否被锁定。"
-        "仍然失败时联系 IT 服务台。\n",
-        encoding="utf-8",
-    )
+    fixture_paths: dict[str, Path] = {}
+    for filename, content in demo_fixture_contents().items():
+        path = fixture_directory / filename
+        path.write_text(content, encoding="utf-8")
+        fixture_paths[filename] = path
 
     with httpx.Client(
         headers=auth_headers("admin"),
@@ -123,12 +140,17 @@ def main() -> None:
                 "is_public": True,
             },
         )
-        upload(
-            client,
-            public_id,
-            public_file,
-            "public_document_id",
-        )
+        for filename, state_key in (
+            ("public-company-info.md", "public_document_id"),
+            ("annual-leave-policy.md", "annual_leave_document_id"),
+            ("expense-policy.md", "expense_policy_document_id"),
+        ):
+            upload(
+                client,
+                public_id,
+                fixture_paths[filename],
+                state_key,
+            )
 
         it_id, it_created = create_base(
             client,
@@ -154,7 +176,7 @@ def main() -> None:
         upload(
             client,
             it_id,
-            it_file,
+            fixture_paths["internal-vpn-guide.md"],
             "it_document_id",
         )
 

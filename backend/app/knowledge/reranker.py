@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from typing import Protocol
 
 from app.agents.contracts import Sensitivity
@@ -37,8 +38,12 @@ class SensitiveAwareReranker:
         sensitivity = _highest_candidate_sensitivity(limited)
         prompt = (
             "你是企业知识库 RAG 重排器。"
-            "请根据问题和候选证据相关性返回 JSON 数组，"
-            "每项格式为 {\"index\": 1, \"score\": 0.0 到 1.0}。"
+            "请判断每条候选证据是否能直接支持回答问题。"
+            "只返回 JSON 数组，每项格式为 "
+            "{\"index\": 1, \"relevance\": 0.0, "
+            "\"coverage\": 0.0, \"reason\": \"简短理由\"}。"
+            "relevance 表示相关性，coverage 表示对问题所需信息的覆盖度，"
+            "均必须在 0 到 1 之间。不得补充候选中不存在的事实。"
         )
         candidate_text = "\n\n".join(
             (
@@ -63,33 +68,59 @@ class SensitiveAwareReranker:
             )
             payload = json.loads(response.text)
         except Exception:
-            return candidates
+            return _fallback(candidates)
 
-        scores: dict[int, float] = {}
-        if isinstance(payload, list):
-            for item in payload:
+        raw_items = (
+            payload.get("items")
+            if isinstance(payload, dict)
+            else payload
+        )
+        scores: dict[int, tuple[float, float, str]] = {}
+        if isinstance(raw_items, list):
+            for item in raw_items:
                 if not isinstance(item, dict):
                     continue
                 index = item.get("index")
-                score = item.get("score")
-                if isinstance(index, int) and isinstance(score, int | float):
-                    scores[index] = float(score)
+                relevance = item.get("relevance", item.get("score"))
+                coverage = item.get("coverage", relevance)
+                if (
+                    isinstance(index, int)
+                    and isinstance(relevance, int | float)
+                    and isinstance(coverage, int | float)
+                ):
+                    scores[index] = (
+                        _score(relevance),
+                        _score(coverage),
+                        str(item.get("reason", ""))[:200],
+                    )
 
         if not scores:
-            return candidates
+            return _fallback(candidates)
 
+        annotated: list[FusedHit] = []
+        for index, item in enumerate(limited, start=1):
+            relevance, coverage, reason = scores.get(
+                index,
+                _fallback_values(item),
+            )
+            annotated.append(
+                replace(
+                    item,
+                    relevance=relevance,
+                    coverage=coverage,
+                    rerank_reason=reason,
+                )
+            )
         reranked = sorted(
-            enumerate(
-                limited,
-                start=1,
-            ),
-            key=lambda pair: (
-                scores.get(pair[0], 0.0),
-                pair[1].fused_score,
+            annotated,
+            key=lambda item: (
+                item.relevance or 0.0,
+                item.coverage or 0.0,
+                item.fused_score,
             ),
             reverse=True,
         )
-        return [item for _, item in reranked] + candidates[self._maximum_candidates :]
+        return reranked + _fallback(candidates[self._maximum_candidates :])
 
 
 class ScoreReranker:
@@ -99,7 +130,35 @@ class ScoreReranker:
         candidates: list[FusedHit],
     ) -> list[FusedHit]:
         del query
-        return candidates
+        return _fallback(candidates)
+
+
+def _fallback(
+    candidates: list[FusedHit],
+) -> list[FusedHit]:
+    return [
+        replace(
+            item,
+            relevance=_fallback_values(item)[0],
+            coverage=_fallback_values(item)[1],
+            rerank_reason=_fallback_values(item)[2],
+        )
+        for item in candidates
+    ]
+
+
+def _fallback_values(
+    candidate: FusedHit,
+) -> tuple[float, float, str]:
+    return (
+        _score(candidate.best_score),
+        min(1.0, candidate.hit_count / 2),
+        "deterministic_fallback",
+    )
+
+
+def _score(value: int | float) -> float:
+    return max(0.0, min(1.0, float(value)))
 
 
 def _highest_candidate_sensitivity(

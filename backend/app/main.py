@@ -127,6 +127,19 @@ def create_app() -> FastAPI:
             full_answer_score=(settings.retrieval_full_answer_score),
             partial_answer_score=(settings.retrieval_partial_answer_score),
             minimum_hit_count=(settings.retrieval_minimum_hit_count),
+            full_relevance_score=(
+                settings.retrieval_full_relevance_score
+            ),
+            full_coverage_score=(
+                settings.retrieval_full_coverage_score
+            ),
+            partial_relevance_score=(
+                settings.retrieval_partial_relevance_score
+            ),
+            partial_vector_score=(
+                settings.retrieval_partial_vector_score
+            ),
+            final_top_k=settings.retrieval_final_top_k,
         ),
     )
     long_term_memory = LongTermMemoryService(

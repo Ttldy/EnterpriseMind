@@ -10,6 +10,8 @@ def fused(
     score: float,
     hit_count: int = 1,
     text: str = "VPN 无法连接时先检查网络，再确认账号状态。",
+    relevance: float | None = None,
+    coverage: float | None = None,
 ) -> FusedHit:
     return FusedHit(
         hit=VectorHit(
@@ -24,6 +26,8 @@ def fused(
         hit_count=hit_count,
         fused_score=score + hit_count * 0.05,
         source_queries=("vpn无法连接怎么办？",),
+        relevance=relevance,
+        coverage=coverage,
     )
 
 
@@ -61,6 +65,29 @@ def test_gate_refuses_when_evidence_is_weak() -> None:
     )
 
     decision = gate.evaluate("火星基地在哪里？", [fused(0.12, 1, "无关内容")])
+
+    assert decision.level is EvidenceLevel.INSUFFICIENT
+    assert decision.citations == []
+
+
+def test_gate_refuses_high_vector_false_positive_after_rerank() -> None:
+    gate = EvidenceGate(
+        full_answer_score=0.45,
+        partial_answer_score=0.20,
+        minimum_hit_count=1,
+    )
+
+    decision = gate.evaluate(
+        "年假怎么申请",
+        [
+            fused(
+                0.45,
+                text="公司办公时间为 9:00 至 18:00。",
+                relevance=0.08,
+                coverage=0.0,
+            )
+        ],
+    )
 
     assert decision.level is EvidenceLevel.INSUFFICIENT
     assert decision.citations == []

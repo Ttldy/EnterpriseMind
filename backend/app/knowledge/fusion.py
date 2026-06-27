@@ -10,6 +10,9 @@ class FusedHit:
     hit_count: int
     fused_score: float
     source_queries: tuple[str, ...]
+    relevance: float | None = None
+    coverage: float | None = None
+    rerank_reason: str = ""
 
 
 def fuse_hits(

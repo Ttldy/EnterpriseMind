@@ -2,7 +2,7 @@ param(
     [switch]$SkipDocker,
     [switch]$SkipBackend,
     [switch]$SkipFrontend,
-    [switch]$StartWorker,
+    [switch]$SkipWorker,
     [switch]$InstallFrontendDependencies
 )
 
@@ -101,11 +101,13 @@ try {
         Write-Ok "Backend window opened"
     }
 
-    if ($StartWorker) {
+    if (-not $SkipWorker) {
         Write-Step "Start document ingestion worker"
-        $workerCommand = "`$Host.UI.RawUI.WindowTitle = 'EnterpriseMind Worker'; Set-Location -LiteralPath $backendQuoted; conda activate em; python -m rq worker document_ingestion --url redis://127.0.0.1:6379/0 --worker-class rq.worker.SpawnWorker --with-scheduler"
+        $workerCommand = "`$Host.UI.RawUI.WindowTitle = 'EnterpriseMind Worker'; Set-Location -LiteralPath $backendQuoted; conda activate em; rq worker document_ingestion --url redis://127.0.0.1:6379/0 --worker-class rq.worker.SimpleWorker --with-scheduler"
         Start-Process powershell.exe -ArgumentList @("-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $workerCommand)
         Write-Ok "Worker window opened"
+    } else {
+        Write-Warn "Document worker skipped; uploaded documents will remain PROCESSING until a worker runs"
     }
 
     if (-not $SkipFrontend) {

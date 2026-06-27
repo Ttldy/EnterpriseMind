@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     retrieval_partial_answer_score: float = 0.20
     retrieval_minimum_hit_count: int = 1
     retrieval_rerank_candidates: int = 8
+    retrieval_full_relevance_score: float = 0.72
+    retrieval_full_coverage_score: float = 0.55
+    retrieval_partial_relevance_score: float = 0.55
+    retrieval_partial_vector_score: float = 0.15
+    retrieval_final_top_k: int = 5
 
     memory_enabled: bool = True
     memory_collection: str = "enterprise_conversation_memory_v1"

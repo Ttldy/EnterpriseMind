@@ -8,7 +8,11 @@ def test_job_key_is_deterministic() -> None:
     first = job_key(7, "abc")
     second = job_key(7, "abc")
     assert first == second
-    assert first == "document:7:abc"
+    assert first == "document-7-abc"
+    assert all(
+        character.isalnum() or character in {"_", "-"}
+        for character in first
+    )
 
 
 def test_retry_stops_after_three_attempts() -> None:
