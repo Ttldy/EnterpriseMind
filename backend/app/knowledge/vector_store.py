@@ -126,6 +126,16 @@ class QdrantVectorStore:
         self,
         document_id: int,
     ) -> None:
+        await self.delete_documents([document_id])
+
+    async def delete_documents(
+        self,
+        document_ids: list[int],
+    ) -> None:
+        unique_ids = sorted(set(document_ids))
+        if not unique_ids:
+            return
+
         await self._client.delete(
             collection_name=self._collection_name,
             points_selector=models.FilterSelector(
@@ -133,7 +143,7 @@ class QdrantVectorStore:
                     must=[
                         models.FieldCondition(
                             key="document_id",
-                            match=models.MatchValue(value=document_id),
+                            match=models.MatchAny(any=unique_ids),
                         )
                     ]
                 )

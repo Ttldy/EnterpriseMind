@@ -1,5 +1,5 @@
 export interface Citation {
-  document_id: number;
+  document_id: number | null;
   filename: string;
   page: number;
   text: string;

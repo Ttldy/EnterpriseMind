@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 
+import { errorMessage } from "@/api/client";
 import {
   activatePrompt,
   createPrompt,
@@ -19,6 +20,7 @@ const selected = ref<PromptVersion | null>(null);
 const result = ref<EvaluationResult | null>(null);
 const dialogVisible = ref(false);
 const running = ref(false);
+const creating = ref(false);
 const form = reactive({
   prompt_key: "finance_agent",
   content: "",
@@ -29,13 +31,27 @@ async function load(): Promise<void> {
 }
 
 async function create(): Promise<void> {
-  await createPrompt(
-    form.prompt_key,
-    form.content,
-  );
-  dialogVisible.value = false;
-  await load();
-  ElMessage.success("候选版本已创建");
+  const content = form.content.trim();
+  if (content.length < 20) {
+    ElMessage.warning("Prompt 内容至少需要 20 个字符");
+    return;
+  }
+  creating.value = true;
+  try {
+    const created = await createPrompt(
+      form.prompt_key,
+      content,
+    );
+    dialogVisible.value = false;
+    await load();
+    ElMessage.success(
+      `候选版本 v${created.version} 已创建`,
+    );
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    creating.value = false;
+  }
 }
 
 async function evaluate(
@@ -80,6 +96,7 @@ onMounted(load);
       </div>
       <el-button
         type="primary"
+        data-testid="open-prompt-create"
         @click="dialogVisible = true"
       >
         创建候选版本
@@ -222,16 +239,25 @@ onMounted(load);
         <el-form-item label="Prompt 内容">
           <el-input
             v-model="form.content"
+            data-testid="prompt-content"
             type="textarea"
             :rows="12"
           />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">
+        <el-button
+          :disabled="creating"
+          @click="dialogVisible = false"
+        >
           取消
         </el-button>
-        <el-button type="primary" @click="create">
+        <el-button
+          type="primary"
+          data-testid="prompt-create-submit"
+          :loading="creating"
+          @click="create"
+        >
           创建
         </el-button>
       </template>

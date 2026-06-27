@@ -67,6 +67,7 @@ from app.shared.config import get_settings
 from app.shared.trace import TraceIdMiddleware
 from app.tools.builtins import KnowledgeSearchTool
 from app.tools.manager import EnterpriseToolManager
+from app.traces.api import router as traces_router
 
 
 def create_app() -> FastAPI:
@@ -140,6 +141,10 @@ def create_app() -> FastAPI:
                 settings.retrieval_partial_vector_score
             ),
             final_top_k=settings.retrieval_final_top_k,
+        ),
+        max_queries=settings.retrieval_max_queries,
+        recall_per_query=(
+            settings.retrieval_recall_per_query
         ),
     )
     long_term_memory = LongTermMemoryService(
@@ -226,6 +231,7 @@ def create_app() -> FastAPI:
     )
 
     app.state.vector_store = vector_store
+    app.state.upload_directory = settings.upload_directory
     app.state.message_cache = RedisRecentMessageCache(redis)
     app.state.long_term_memory = long_term_memory
     app.state.tool_manager = tool_manager
@@ -289,6 +295,10 @@ def create_app() -> FastAPI:
     )
     app.include_router(
         evaluation_router,
+        prefix="/api/v1",
+    )
+    app.include_router(
+        traces_router,
         prefix="/api/v1",
     )
     return app

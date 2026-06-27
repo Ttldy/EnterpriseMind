@@ -76,8 +76,9 @@ class CitationRecord(Base):
         ForeignKey("messages.id", ondelete="CASCADE"),
         index=True,
     )
-    document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"),
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     filename: Mapped[str] = mapped_column(String(255))

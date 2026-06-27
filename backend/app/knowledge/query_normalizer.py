@@ -7,7 +7,7 @@ class RuleQueryNormalizer:
         if not original:
             return []
 
-        variants = [original]
+        variants: list[str] = []
         synonym_groups = (
             ("没有连接", "无法连接", "连不上", "连接失败"),
             ("报销失败", "无法报销", "报销不了"),

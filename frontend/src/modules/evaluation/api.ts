@@ -7,6 +7,7 @@ export interface PromptVersion {
   content: string;
   content_sha256: string;
   is_active: boolean;
+  status: "active" | "candidate";
   created_at: string;
 }
 

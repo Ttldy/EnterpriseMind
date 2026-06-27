@@ -70,7 +70,7 @@ function feedback(rating: -1 | 1): void {
     <CitationCard
       v-for="citation in message.metadata?.citations"
       :key="
-        `${citation.document_id}-${citation.page}`
+        `${citation.document_id ?? citation.filename}-${citation.page}`
       "
       :citation="citation"
     />

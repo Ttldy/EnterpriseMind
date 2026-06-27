@@ -10,7 +10,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,11 @@ from app.auth.models import User
 from app.knowledge.access import AccessContext
 from app.knowledge.job_service import (
     DocumentJobService,
+)
+from app.knowledge.management import (
+    KnowledgeBaseManagementService,
+    KnowledgeBaseNameConflictError,
+    KnowledgeBaseNotFoundError,
 )
 from app.knowledge.models import (
     Document,
@@ -49,6 +54,15 @@ class KnowledgeBaseCreate(BaseModel):
     domain: str
     sensitivity: str = "internal"
     is_public: bool = False
+
+
+class KnowledgeBaseRename(BaseModel):
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        extra="forbid",
+    )
+
+    name: str = Field(min_length=1, max_length=120)
 
 
 class PermissionCreate(BaseModel):
@@ -91,6 +105,66 @@ async def create_knowledge_base(
         "id": knowledge_base.id,
         "name": knowledge_base.name,
     }
+
+
+@router.patch("/bases/{knowledge_base_id}")
+async def rename_knowledge_base(
+    knowledge_base_id: int,
+    body: KnowledgeBaseRename,
+    request: Request,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    settings = get_settings()
+    service = KnowledgeBaseManagementService(
+        session=session,
+        vector_store=request.app.state.vector_store,
+        upload_directory=getattr(
+            request.app.state,
+            "upload_directory",
+            settings.upload_directory,
+        ),
+    )
+    try:
+        knowledge_base = await service.rename(
+            knowledge_base_id,
+            body.name,
+        )
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KnowledgeBaseNameConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {
+        "id": knowledge_base.id,
+        "name": knowledge_base.name,
+    }
+
+
+@router.delete(
+    "/bases/{knowledge_base_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_knowledge_base(
+    knowledge_base_id: int,
+    request: Request,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    settings = get_settings()
+    service = KnowledgeBaseManagementService(
+        session=session,
+        vector_store=request.app.state.vector_store,
+        upload_directory=getattr(
+            request.app.state,
+            "upload_directory",
+            settings.upload_directory,
+        ),
+    )
+    try:
+        await service.delete(knowledge_base_id)
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/bases/{knowledge_base_id}/permissions")

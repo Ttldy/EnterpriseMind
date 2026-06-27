@@ -19,6 +19,8 @@ import {
   fetchDocuments,
   fetchKnowledgeBases,
   removeDocument,
+  removeKnowledgeBase,
+  renameKnowledgeBase,
   uploadDocument,
 } from "./api";
 import type {
@@ -33,6 +35,9 @@ const loading = ref(false);
 const createVisible = ref(false);
 const permissionVisible = ref(false);
 const uploadVisible = ref(false);
+const renameVisible = ref(false);
+const renameSubmitting = ref(false);
+const deletingBaseId = ref<number | null>(null);
 const selectedFile = ref<File | null>(null);
 let documentPollTimer: number | null = null;
 
@@ -48,6 +53,11 @@ const permissionForm = reactive({
     | "ROLE"
     | "DEPARTMENT",
   subject_value: "",
+});
+
+const renameForm = reactive({
+  id: 0,
+  name: "",
 });
 
 async function loadBases(): Promise<void> {
@@ -103,6 +113,75 @@ async function submitPermission(): Promise<void> {
 
 function chooseFile(file: UploadFile): void {
   selectedFile.value = file.raw ?? null;
+}
+
+function openRename(item: KnowledgeBaseRow): void {
+  renameForm.id = item.id;
+  renameForm.name = item.name;
+  renameVisible.value = true;
+}
+
+async function submitRename(): Promise<void> {
+  const name = renameForm.name.trim();
+  if (!name) {
+    ElMessage.warning("知识库名称不能为空");
+    return;
+  }
+  renameSubmitting.value = true;
+  try {
+    const result = await renameKnowledgeBase(
+      renameForm.id,
+      name,
+    );
+    renameVisible.value = false;
+    await loadBases();
+    ElMessage.success(
+      `知识库已重命名为 ${result.name}`,
+    );
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    renameSubmitting.value = false;
+  }
+}
+
+async function deleteBase(
+  item: KnowledgeBaseRow,
+): Promise<void> {
+  if (deletingBaseId.value !== null) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `删除“${item.name}”将同时删除其文档、向量和权限，是否继续？`,
+      "删除知识库",
+      {
+        type: "warning",
+        confirmButtonText: "确认删除",
+      },
+    );
+  } catch (error) {
+    if (error === "cancel" || error === "close") {
+      return;
+    }
+    ElMessage.error(errorMessage(error));
+    return;
+  }
+
+  deletingBaseId.value = item.id;
+  try {
+    await removeKnowledgeBase(item.id);
+    if (activeBaseId.value === item.id) {
+      activeBaseId.value = null;
+      documents.value = [];
+    }
+    await loadBases();
+    ElMessage.success("知识库已删除");
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    deletingBaseId.value = null;
+  }
 }
 
 function stopDocumentPolling(): void {
@@ -231,7 +310,30 @@ onUnmounted(stopDocumentPolling);
               </el-tag>
             </div>
           </div>
-          <span>{{ item.document_count }} 个文档</span>
+          <div class="base-actions">
+            <span>{{ item.document_count }} 个文档</span>
+            <div>
+              <el-button
+                text
+                size="small"
+                :data-testid="`rename-base-${item.id}`"
+                @click.stop="openRename(item)"
+              >
+                重命名
+              </el-button>
+              <el-button
+                text
+                type="danger"
+                size="small"
+                :loading="deletingBaseId === item.id"
+                :disabled="deletingBaseId !== null"
+                :data-testid="`delete-base-${item.id}`"
+                @click.stop="deleteBase(item)"
+              >
+                删除
+              </el-button>
+            </div>
+          </div>
         </div>
       </el-card>
 
@@ -294,6 +396,39 @@ onUnmounted(stopDocumentPolling);
         </el-table>
       </el-card>
     </div>
+
+    <el-dialog
+      v-model="renameVisible"
+      title="重命名知识库"
+      width="480px"
+    >
+      <el-form label-position="top">
+        <el-form-item label="名称">
+          <el-input
+            v-model="renameForm.name"
+            data-testid="rename-input"
+            maxlength="120"
+            @keyup.enter="submitRename"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button
+          :disabled="renameSubmitting"
+          @click="renameVisible = false"
+        >
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          data-testid="rename-submit"
+          :loading="renameSubmitting"
+          @click="submitRename"
+        >
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="createVisible"
@@ -454,6 +589,15 @@ onUnmounted(stopDocumentPolling);
   display: flex;
   gap: 5px;
   margin-top: 7px;
+}
+
+.base-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .document-header {

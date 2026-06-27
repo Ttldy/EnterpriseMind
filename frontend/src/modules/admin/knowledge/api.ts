@@ -102,6 +102,27 @@ export async function uploadDocument(
   return response.data;
 }
 
+export async function renameKnowledgeBase(
+  knowledgeBaseId: number,
+  name: string,
+): Promise<{ id: number; name: string }> {
+  const response = await api.patch<{
+    id: number;
+    name: string;
+  }>(`/knowledge/bases/${knowledgeBaseId}`, {
+    name,
+  });
+  return response.data;
+}
+
+export async function removeKnowledgeBase(
+  knowledgeBaseId: number,
+): Promise<void> {
+  await api.delete(
+    `/knowledge/bases/${knowledgeBaseId}`,
+  );
+}
+
 export async function fetchJob(
   jobId: string,
 ): Promise<JobStatus> {

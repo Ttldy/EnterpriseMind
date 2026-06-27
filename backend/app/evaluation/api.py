@@ -20,6 +20,7 @@ from app.evaluation.prompt_service import (
     PromptNotFoundError,
     PromptReleaseBlockedError,
     PromptService,
+    PromptVersionConflictError,
 )
 from app.evaluation.resolver import DatabasePromptResolver
 from app.evaluation.runner import EvaluationRunner
@@ -56,6 +57,11 @@ def prompt_dict(item: PromptVersion) -> dict[str, object]:
         "content": item.content,
         "content_sha256": item.content_sha256,
         "is_active": item.is_active,
+        "status": (
+            "active"
+            if item.is_active
+            else "candidate"
+        ),
         "created_at": item.created_at,
     }
 
@@ -78,11 +84,17 @@ async def create_prompt(
     user: User = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, object]:
-    item = await PromptService(session).create(
-        body.prompt_key,
-        body.content,
-        user.id,
-    )
+    try:
+        item = await PromptService(session).create(
+            body.prompt_key,
+            body.content,
+            user.id,
+        )
+    except PromptVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
     return prompt_dict(item)
 
 

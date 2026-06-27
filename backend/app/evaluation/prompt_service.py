@@ -1,6 +1,7 @@
 import hashlib
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.evaluation.models import (
@@ -14,6 +15,10 @@ class PromptNotFoundError(LookupError):
 
 
 class PromptReleaseBlockedError(ValueError):
+    pass
+
+
+class PromptVersionConflictError(ValueError):
     pass
 
 
@@ -34,30 +39,47 @@ class PromptService:
         normalized = content.strip()
         if not normalized:
             raise ValueError("Prompt content is empty")
-        latest = await self._session.scalar(
-            select(
-                func.max(PromptVersion.version)
-            ).where(
-                PromptVersion.prompt_key
-                == prompt_key
+        normalized_key = prompt_key.strip()
+        if not normalized_key:
+            raise ValueError("Prompt key is empty")
+
+        for attempt in range(3):
+            latest = await self._session.scalar(
+                select(
+                    func.max(PromptVersion.version)
+                ).where(
+                    PromptVersion.prompt_key
+                    == normalized_key
+                )
             )
+            prompt = PromptVersion(
+                prompt_key=normalized_key,
+                version=int(latest or 0) + 1,
+                content=normalized,
+                content_sha256=hashlib.sha256(
+                    normalized.encode("utf-8")
+                ).hexdigest(),
+                is_active=activate_bootstrap,
+                created_by=created_by,
+            )
+            if activate_bootstrap:
+                await self._deactivate_key(normalized_key)
+            self._session.add(prompt)
+            try:
+                await self._session.commit()
+            except IntegrityError as exc:
+                await self._session.rollback()
+                if attempt == 2:
+                    raise PromptVersionConflictError(
+                        "Prompt 版本创建冲突，请重试"
+                    ) from exc
+                continue
+            await self._session.refresh(prompt)
+            return prompt
+
+        raise PromptVersionConflictError(
+            "Prompt 版本创建冲突，请重试"
         )
-        prompt = PromptVersion(
-            prompt_key=prompt_key,
-            version=int(latest or 0) + 1,
-            content=normalized,
-            content_sha256=hashlib.sha256(
-                normalized.encode("utf-8")
-            ).hexdigest(),
-            is_active=activate_bootstrap,
-            created_by=created_by,
-        )
-        if activate_bootstrap:
-            await self._deactivate_key(prompt_key)
-        self._session.add(prompt)
-        await self._session.commit()
-        await self._session.refresh(prompt)
-        return prompt
 
     async def list_versions(
         self,

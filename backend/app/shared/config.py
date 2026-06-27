@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     retrieval_partial_relevance_score: float = 0.55
     retrieval_partial_vector_score: float = 0.15
     retrieval_final_top_k: int = 5
+    retrieval_max_queries: int = 4
+    retrieval_recall_per_query: int = 5
 
     memory_enabled: bool = True
     memory_collection: str = "enterprise_conversation_memory_v1"

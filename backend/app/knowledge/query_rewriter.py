@@ -40,17 +40,22 @@ class QueryRewriter:
             )
             values = json.loads(response.text)
         except Exception:
-            return [query]
+            return []
 
         if not isinstance(values, list):
-            return [query]
+            return []
 
         rewritten = [
             str(item).strip()
             for item in values
             if isinstance(item, str) and item.strip()
         ]
-        return _dedupe([query, *rewritten])
+        original_key = _canonical(query)
+        return [
+            value
+            for value in _dedupe(rewritten)
+            if _canonical(value) != original_key
+        ]
 
 
 class NoopQueryRewriter:
@@ -58,7 +63,8 @@ class NoopQueryRewriter:
         self,
         query: str,
     ) -> list[str]:
-        return [query]
+        del query
+        return []
 
 
 def _dedupe(
@@ -67,7 +73,13 @@ def _dedupe(
     seen: set[str] = set()
     result: list[str] = []
     for value in values:
-        if value not in seen:
-            seen.add(value)
-            result.append(value)
+        normalized = " ".join(value.split()).strip()
+        key = _canonical(normalized)
+        if normalized and key not in seen:
+            seen.add(key)
+            result.append(normalized)
     return result
+
+
+def _canonical(value: str) -> str:
+    return " ".join(value.split()).strip().casefold()
