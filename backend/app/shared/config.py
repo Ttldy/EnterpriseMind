@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     retrieval_minimum_hit_count: int = 1
     retrieval_rerank_candidates: int = 8
 
+    memory_enabled: bool = True
+    memory_collection: str = "enterprise_conversation_memory_v1"
+    memory_top_k: int = 3
+    memory_minimum_score: float = 0.25
+    memory_summary_trigger_messages: int = 6
+    memory_summary_recent_messages: int = 8
+    memory_summary_max_chars: int = 1200
+
     redis_url: str = "redis://127.0.0.1:6379/0"
     rq_document_queue: str = "document_ingestion"
     rq_job_timeout_seconds: int = 300
@@ -69,6 +77,27 @@ class Settings(BaseSettings):
         "evaluation/cases"
     )
     evaluation_maximum_drop: float = 0.03
+    evaluation_executor_mode: str = "orchestrator"
+    evaluation_judge_enabled: bool = True
+    evaluation_judge_minimum_score: float = 0.75
+    evaluation_judge_fail_closed: bool = True
+    evaluation_judge_model_sensitivity: str = "internal"
+    evaluation_default_hr_username: str = "hr01"
+    evaluation_default_it_username: str = "it01"
+    evaluation_default_finance_username: str = "finance01"
+    evaluation_default_employee_username: str = "employee01"
+    evaluation_default_admin_username: str = "admin"
+    intent_router_mode: str = "rule"
+    tool_manager_enabled: bool = False
+    tool_default_timeout_ms: int = 3000
+    tool_default_cache_ttl_seconds: int = 30
+    tool_circuit_failure_threshold: int = 3
+    tool_circuit_recovery_seconds: int = 30
+    composite_agent_enabled: bool = False
+    monitor_enabled: bool = False
+    benchmark_output_dir: Path = Path("evaluation/reports")
+    benchmark_judge_enabled: bool = True
+    benchmark_judge_minimum_score: float = 0.75
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:3b"

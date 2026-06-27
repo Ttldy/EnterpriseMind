@@ -2,6 +2,8 @@ import pytest
 
 from app.agents.contracts import (
     AgentType,
+    IntentType,
+    RouteResult,
     Sensitivity,
 )
 from app.agents.orchestrator import (
@@ -88,8 +90,9 @@ class FakeDataService:
         self,
         question: str,
         access: AccessContext,
+        memory_context: str = "",
     ):
-        del question, access
+        del question, access, memory_context
         raise PermissionError
 
 
@@ -101,6 +104,21 @@ class FakePromptResolver:
     ) -> str:
         del prompt_key
         return fallback
+
+
+class AsyncItRouter:
+    async def route(
+        self,
+        message: str,
+    ) -> RouteResult:
+        del message
+        return RouteResult(
+            agent=AgentType.IT,
+            intent=IntentType.KNOWLEDGE_QUERY,
+            requires_sql=False,
+            sensitivity=Sensitivity.INTERNAL,
+            confidence=0.88,
+        )
 
 
 def orchestrator(
@@ -209,3 +227,28 @@ async def test_unauthorized_data_query_refuses() -> None:
     assert result.refused is True
     assert result.external_sent is False
     assert result.sql is None
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_accepts_async_intent_router() -> None:
+    gateway = FakeGateway()
+    app = AgentOrchestrator(
+        router=AsyncItRouter(),
+        gateway=gateway,
+        retrieval=FakeRetrieval(
+            EvidenceDecision(
+                level=EvidenceLevel.FULL,
+                citations=[citation()],
+            )
+        ),
+        data_service=FakeDataService(),
+        prompts=FakePromptResolver(),
+    )
+
+    result = await app.run(
+        "电脑连不上公司内网怎么办",
+        ACCESS,
+    )
+
+    assert result.agent is AgentType.IT
+    assert gateway.sensitivities == [Sensitivity.INTERNAL]

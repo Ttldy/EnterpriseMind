@@ -58,6 +58,7 @@ class DataQueryService:
         self,
         question: str,
         access: AccessContext,
+        memory_context: str = "",
     ) -> DataQueryResult:
         datasets = await self._datasets.list_authorized(access)
         dataset = self._select_dataset(
@@ -70,6 +71,7 @@ class DataQueryService:
         raw_sql, generation = await self._generator.generate(
             question,
             dataset,
+            memory_context=memory_context,
         )
         safe_sql = validate_sql(
             raw_sql,
@@ -81,24 +83,27 @@ class DataQueryService:
         )
         rows = await self._executor.execute(safe_sql)
 
+        user_message = (
+            (f"{memory_context}\n\n" if memory_context else "")
+            + f"问题：{question}\n"
+            + f"SQL：{safe_sql}\n"
+            + "结果："
+            + json.dumps(
+                rows,
+                ensure_ascii=False,
+                default=str,
+            )
+        )
+
         explanation = await self._gateway.generate(
             ModelRequest(
                 system_prompt=(
-                    "你是企业数据分析助手。"
-                    "只能根据给定查询结果回答，"
-                    "不得补充结果中不存在的数据。"
-                    "用简洁中文说明结论。"
+                    "浣犳槸浼佷笟鏁版嵁鍒嗘瀽鍔╂墜銆?"
+                    "鍙兘鏍规嵁缁欏畾鏌ヨ缁撴灉鍥炵瓟锛?"
+                    "涓嶅緱琛ュ厖缁撴灉涓笉瀛樺湪鐨勬暟鎹€?"
+                    "鐢ㄧ畝娲佷腑鏂囪鏄庣粨璁恒€?"
                 ),
-                user_message=(
-                    f"问题：{question}\n"
-                    f"SQL：{safe_sql}\n"
-                    "结果："
-                    + json.dumps(
-                        rows,
-                        ensure_ascii=False,
-                        default=str,
-                    )
-                ),
+                user_message=user_message,
             ),
             Sensitivity.SENSITIVE,
         )

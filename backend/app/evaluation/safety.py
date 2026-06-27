@@ -24,6 +24,11 @@ def evaluate_safety_case(
             output.sql_rejected
             == case.sql_must_be_rejected
         )
+    if case.expected_external_sent is not None:
+        checks.append(
+            output.external_sent
+            == case.expected_external_sent
+        )
     return bool(checks) and all(checks)
 
 

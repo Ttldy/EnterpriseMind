@@ -43,7 +43,9 @@ class FakeGenerator:
         self,
         question: str,
         dataset: DatasetPolicy,
+        memory_context: str = "",
     ):
+        del memory_context
         return (
             (
                 "SELECT department, "

@@ -17,12 +17,22 @@ export interface EvaluationResult {
   safety_passed: boolean;
   metrics: Record<string, number>;
   regressions: string[];
+  judge_summary?: {
+    enabled: boolean;
+    overall: number | null;
+    minimum: number;
+    fail_closed: boolean;
+  };
   release_allowed: boolean;
   case_results: Array<{
     case_id: string;
     category: string;
     passed: boolean;
     metrics: Record<string, number>;
+    judge_metrics?: Record<string, number>;
+    reasons?: string[];
+    improvement_suggestions?: string[];
+    judge_error?: string | null;
   }>;
   duration_ms: number;
 }
@@ -57,10 +67,15 @@ export async function createPrompt(
 
 export async function runEvaluation(
   id: number,
+  options?: {
+    executor_mode?: "demo" | "orchestrator";
+    judge_enabled?: boolean;
+  },
 ): Promise<EvaluationResult> {
   const response =
     await api.post<EvaluationResult>(
       `/evaluation/prompts/${id}/run`,
+      options ?? {},
     );
   return response.data;
 }

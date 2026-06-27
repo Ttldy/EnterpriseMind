@@ -26,6 +26,7 @@ class SqlGenerator:
         self,
         question: str,
         dataset: DatasetPolicy,
+        memory_context: str = "",
     ) -> tuple[str, GatewayResponse]:
         prompt = (
             "你是 PostgreSQL 只读 SQL 生成器。\n"
@@ -43,7 +44,11 @@ class SqlGenerator:
         response = await self._gateway.generate(
             ModelRequest(
                 system_prompt=prompt,
-                user_message=question,
+                user_message=(
+                    f"{memory_context}\n\n用户问题：{question}"
+                    if memory_context
+                    else question
+                ),
             ),
             Sensitivity.SENSITIVE,
         )

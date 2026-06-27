@@ -161,8 +161,39 @@ onMounted(load);
         <el-descriptions-item label="耗时">
           {{ result.duration_ms }} ms
         </el-descriptions-item>
+        <el-descriptions-item label="Judge Overall">
+          {{
+            result.judge_summary?.overall == null
+              ? "-"
+              : result.judge_summary.overall.toFixed(3)
+          }}
+        </el-descriptions-item>
       </el-descriptions>
       <pre>{{ JSON.stringify(result.metrics, null, 2) }}</pre>
+      <div
+        v-if="
+          result.case_results.some(
+            (item) =>
+              item.improvement_suggestions?.length,
+          )
+        "
+        class="suggestions"
+      >
+        <h4>Judge Suggestions</h4>
+        <ul>
+          <template
+            v-for="item in result.case_results"
+            :key="item.case_id"
+          >
+            <li
+              v-for="suggestion in item.improvement_suggestions"
+              :key="`${item.case_id}-${suggestion}`"
+            >
+              {{ item.case_id }}: {{ suggestion }}
+            </li>
+          </template>
+        </ul>
+      </div>
     </el-card>
 
     <el-dialog
@@ -217,5 +248,9 @@ pre {
   padding: 14px;
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.suggestions {
+  margin-top: 12px;
 }
 </style>

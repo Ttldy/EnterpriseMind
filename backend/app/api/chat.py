@@ -84,7 +84,7 @@ async def chat(
         )
         conversation_id = body.conversation_id
 
-    await conversation_service.add_message(
+    user_message = await conversation_service.add_message(
         conversation_id=conversation_id,
         user_id=user.id,
         role="user",
@@ -100,6 +100,7 @@ async def chat(
         prompts=DatabasePromptResolver(
             PromptService(session)
         ),
+        memory=request.app.state.long_term_memory,
     )
     result = await orchestrator.run(
         body.message,
@@ -115,6 +116,21 @@ async def chat(
         model=result.model,
         trace_id=request.state.trace_id,
         citations=result.citations,
+    )
+    recent_messages = await conversation_service.recent_context(
+        conversation_id,
+        user.id,
+    )
+    await request.app.state.long_term_memory.maybe_store_after_turn(
+        access=access,
+        conversation_id=conversation_id,
+        message_ids=(
+            user_message.id,
+            assistant_message.id,
+        ),
+        recent_messages=recent_messages,
+        sensitivity=result.sensitivity,
+        sql=result.sql,
     )
 
     return ChatResponse(

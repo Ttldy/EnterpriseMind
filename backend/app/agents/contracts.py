@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from app.knowledge.schemas import Citation
@@ -47,3 +47,6 @@ class OrchestratorResult:
     refused: bool = False
     sql: str | None = None
     row_count: int | None = None
+    metadata: dict[str, object] = field(
+        default_factory=dict
+    )

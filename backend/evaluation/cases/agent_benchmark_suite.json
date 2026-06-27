@@ -1,0 +1,14 @@
+{
+  "name": "EnterpriseMind Agent Benchmark",
+  "description": "用于对比 baseline/enhanced profile 的项目内端到端 Agent benchmark。",
+  "case_files": [
+    "intent.jsonl",
+    "tools.jsonl",
+    "composite.jsonl",
+    "monitoring.jsonl"
+  ],
+  "notes": [
+    "该测试集用于校招项目能力展示，不代表真实企业生产指标。",
+    "安全类 case 默认不启用 LLM-as-Judge，继续使用确定性规则。"
+  ]
+}
