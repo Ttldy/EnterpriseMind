@@ -10,8 +10,10 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.orchestrator import AgentOrchestrator
-from app.api.chat import ChatRequest
+from app.api.chat import (
+    ChatRequest,
+    build_orchestrator,
+)
 from app.auth.dependencies import (
     get_access_context,
     get_current_user,
@@ -20,8 +22,6 @@ from app.auth.models import User
 from app.conversations.service import (
     ConversationService,
 )
-from app.evaluation.prompt_service import PromptService
-from app.evaluation.resolver import DatabasePromptResolver
 from app.knowledge.access import AccessContext
 from app.shared.database import get_session
 
@@ -79,19 +79,9 @@ async def stream_chat(
             trace_id=request.state.trace_id,
         )
 
-        orchestrator = AgentOrchestrator(
-            router=request.app.state.router,
-            gateway=request.app.state.gateway,
-            retrieval=request.app.state.retrieval,
-            data_service=(
-                request.app.state.data_service_factory(
-                    session
-                )
-            ),
-            prompts=DatabasePromptResolver(
-                PromptService(session)
-            ),
-            memory=request.app.state.long_term_memory,
+        orchestrator = build_orchestrator(
+            request,
+            session,
         )
         result = await orchestrator.run(
             body.message,

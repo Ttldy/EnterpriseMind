@@ -55,6 +55,31 @@ class ChatResponse(BaseModel):
     row_count: int | None
 
 
+def build_orchestrator(
+    request: Request,
+    session: AsyncSession,
+) -> AgentOrchestrator:
+    return AgentOrchestrator(
+        router=request.app.state.router,
+        gateway=request.app.state.gateway,
+        retrieval=request.app.state.retrieval,
+        data_service=(
+            request.app.state.data_service_factory(
+                session
+            )
+        ),
+        prompts=DatabasePromptResolver(
+            PromptService(session)
+        ),
+        memory=request.app.state.long_term_memory,
+        tool_manager=request.app.state.tool_manager,
+        composite_enabled=(
+            request.app.state.composite_agent_enabled
+        ),
+        monitor=request.app.state.monitoring_service,
+    )
+
+
 @router.post(
     "/chat",
     response_model=ChatResponse,
@@ -92,15 +117,9 @@ async def chat(
         trace_id=request.state.trace_id,
     )
 
-    orchestrator = AgentOrchestrator(
-        router=request.app.state.router,
-        gateway=request.app.state.gateway,
-        retrieval=request.app.state.retrieval,
-        data_service=(request.app.state.data_service_factory(session)),
-        prompts=DatabasePromptResolver(
-            PromptService(session)
-        ),
-        memory=request.app.state.long_term_memory,
+    orchestrator = build_orchestrator(
+        request,
+        session,
     )
     result = await orchestrator.run(
         body.message,
