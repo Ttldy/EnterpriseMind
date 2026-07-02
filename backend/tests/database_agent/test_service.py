@@ -11,6 +11,7 @@ from app.knowledge.access import AccessContext
 from app.model_gateway.contracts import (
     GatewayResponse,
 )
+from app.monitoring.contracts import MonitorEvent
 
 EXPENSE_DATASET = DatasetPolicy(
     id=3,
@@ -101,6 +102,15 @@ FINANCE_ACCESS = AccessContext(
 )
 
 
+class RecordingMonitor:
+    def __init__(self) -> None:
+        self.events: list[MonitorEvent] = []
+
+    def record(self, event: MonitorEvent) -> bool:
+        self.events.append(event)
+        return True
+
+
 @pytest.mark.asyncio
 async def test_authorized_query_executes() -> None:
     service = DataQueryService(
@@ -123,11 +133,13 @@ async def test_authorized_query_executes() -> None:
 
 @pytest.mark.asyncio
 async def test_no_authorized_dataset_refuses() -> None:
+    monitor = RecordingMonitor()
     service = DataQueryService(
         datasets=FakeDatasets([]),
         generator=FakeGenerator(),
         executor=FakeExecutor(),
         gateway=FakeGateway(),
+        monitor=monitor,
     )
 
     with pytest.raises(PermissionError):
@@ -135,3 +147,29 @@ async def test_no_authorized_dataset_refuses() -> None:
             "统计各部门报销金额",
             FINANCE_ACCESS,
         )
+
+    assert monitor.events[0].success is False
+    assert monitor.events[0].error_code == "permission_denied"
+    assert monitor.events[0].metadata == {
+        "business_outcome": "permission_denied"
+    }
+
+
+@pytest.mark.asyncio
+async def test_data_query_records_row_count_without_sql_or_results() -> None:
+    monitor = RecordingMonitor()
+    service = DataQueryService(
+        datasets=FakeDatasets([EXPENSE_DATASET]),
+        generator=FakeGenerator(),
+        executor=FakeExecutor(),
+        gateway=FakeGateway(),
+        monitor=monitor,
+    )
+
+    await service.answer("统计各部门报销金额", FINANCE_ACCESS)
+
+    saved = monitor.events[0]
+    assert saved.success is True
+    assert saved.metadata == {"row_count": 1}
+    assert "sql" not in saved.metadata
+    assert "sql_result" not in saved.metadata

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -16,6 +17,7 @@ from app.evaluation.benchmark_contracts import (
 from app.evaluation.benchmark_metrics import (
     score_benchmark_case,
 )
+from app.evaluation.benchmark_monitoring import ControlledMonitoringFixture
 from app.evaluation.contracts import (
     CaseExecutor,
     EvaluationCase,
@@ -69,12 +71,16 @@ class BenchmarkRunner:
         prompt_content: str,
         judge: LLMJudgeScorer | None = None,
         judge_enabled: bool = False,
+        monitoring_fixture: ControlledMonitoringFixture | None = None,
     ) -> None:
         self._executor = executor
         self._case_directory = case_directory
         self._prompt_content = prompt_content
         self._judge = judge
         self._judge_enabled = judge_enabled
+        self._monitoring_fixture = (
+            monitoring_fixture or ControlledMonitoringFixture()
+        )
 
     async def run(
         self,
@@ -92,6 +98,15 @@ class BenchmarkRunner:
                 benchmark_case.evaluation,
                 self._prompt_content,
             )
+            monitor_metadata = self._monitoring_fixture.metadata(
+                benchmark_case,
+                profile,
+            )
+            if monitor_metadata:
+                output = replace(
+                    output,
+                    metadata={**output.metadata, **monitor_metadata},
+                )
             metrics = score_benchmark_case(
                 benchmark_case,
                 output,
@@ -131,6 +146,16 @@ class BenchmarkRunner:
                 }
             )
 
+        aggregated_metrics = average_metrics(metric_values)
+        for key in (
+            "tool_timeout_count",
+            "tool_fallback_count",
+            "tool_circuit_open_count",
+        ):
+            values = [item[key] for item in metric_values if key in item]
+            if values:
+                aggregated_metrics[key] = sum(values)
+
         return {
             "benchmark_name": "EnterpriseMind Agent Benchmark",
             "profile": profile.name,
@@ -141,9 +166,10 @@ class BenchmarkRunner:
             "duration_ms": int(
                 (time.perf_counter() - started) * 1000
             ),
-            "metrics": average_metrics(metric_values),
+            "metrics": aggregated_metrics,
             "case_results": case_results,
             "notes": [
+                "监控指标来自受控 MonitorEvent fixture，不解析用户问题关键词。",
                 "本报告基于项目内 benchmark 测试集生成，用于校招项目能力展示。",
                 "baseline/enhanced 通过配置 profile 切换，避免依赖 Git 分支。",
             ],

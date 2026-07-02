@@ -18,6 +18,7 @@ from app.knowledge.models import (
     KnowledgeBase,
     KnowledgePermission,
 )
+from app.monitoring.models import MonitorEventRecord
 
 __all__ = [
     "CitationRecord",
@@ -30,6 +31,7 @@ __all__ = [
     "KnowledgeBase",
     "KnowledgePermission",
     "Message",
+    "MonitorEventRecord",
     "EvaluationRun",
     "PromptVersion",
     "Role",

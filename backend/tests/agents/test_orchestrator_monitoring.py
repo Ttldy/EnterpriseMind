@@ -8,7 +8,7 @@ from app.knowledge.evidence_gate import EvidenceDecision, EvidenceLevel
 from app.knowledge.retrieval import EnhancedRetrievalResult
 from app.knowledge.schemas import Citation
 from app.model_gateway.contracts import GatewayResponse
-from app.monitoring.service import MonitoringService
+from app.monitoring.contracts import MonitorEvent
 
 ACCESS = AccessContext(
     user_id=1,
@@ -84,14 +84,25 @@ class FakePromptResolver:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_adds_monitor_warning_metadata() -> None:
+class RecordingMonitor:
+    def __init__(self) -> None:
+        self.events: list[MonitorEvent] = []
+
+    def record(self, event: MonitorEvent) -> bool:
+        self.events.append(event)
+        return True
+
+
+@pytest.mark.asyncio
+async def test_question_keywords_do_not_create_simulated_monitor_warning() -> None:
+    monitor = RecordingMonitor()
     orchestrator = AgentOrchestrator(
         router=RuleRouter(),
         gateway=FakeGateway(),
         retrieval=FakeRetrieval(),
         data_service=FakeDataService(),
         prompts=FakePromptResolver(),
-        monitor=MonitoringService(),
+        monitor=monitor,
     )
 
     result = await orchestrator.run(
@@ -99,5 +110,10 @@ async def test_orchestrator_adds_monitor_warning_metadata() -> None:
         ACCESS,
     )
 
-    assert result.metadata["monitor_warning_detected"] is True
-    assert result.metadata["monitor_reason"] == "simulated_timeout"
+    assert "monitor_warning_detected" not in result.metadata
+    assert "tool_timeout" not in result.metadata
+    assert any(
+        event.component == "orchestrator"
+        and event.operation == "run"
+        for event in monitor.events
+    )

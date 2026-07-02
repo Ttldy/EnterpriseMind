@@ -12,6 +12,7 @@ from app.database_agent.repository import (
 )
 from app.database_agent.validator import (
     SqlPolicy,
+    UnsafeSqlError,
     validate_sql,
 )
 from app.knowledge.access import AccessContext
@@ -19,6 +20,12 @@ from app.model_gateway.contracts import (
     ModelRequest,
 )
 from app.model_gateway.gateway import ModelGateway
+from app.monitoring.contracts import MonitorRecorder
+from app.monitoring.instrumentation import (
+    OperationTimer,
+    exception_error_code,
+    is_timeout_error,
+)
 
 
 class SqlExecutor(Protocol):
@@ -47,14 +54,66 @@ class DataQueryService:
         executor: SqlExecutor,
         gateway: ModelGateway,
         max_rows: int = 200,
+        monitor: MonitorRecorder | None = None,
     ) -> None:
         self._datasets = datasets
         self._generator = generator
         self._executor = executor
         self._gateway = gateway
         self._max_rows = max_rows
+        self._monitor = monitor
 
     async def answer(
+        self,
+        question: str,
+        access: AccessContext,
+        memory_context: str = "",
+    ) -> DataQueryResult:
+        timer = OperationTimer(
+            self._monitor,
+            component="data_query",
+            operation="answer",
+        )
+        try:
+            result = await self._answer(
+                question,
+                access,
+                memory_context,
+            )
+        except PermissionError:
+            timer.finish(
+                success=False,
+                error_code="permission_denied",
+                metadata={
+                    "business_outcome": "permission_denied"
+                },
+            )
+            raise
+        except UnsafeSqlError:
+            timer.finish(
+                success=False,
+                error_code="unsafe_sql_rejected",
+                metadata={
+                    "business_outcome": "unsafe_sql_rejected"
+                },
+            )
+            raise
+        except Exception as exc:
+            timer.finish(
+                success=False,
+                error_code=exception_error_code(exc),
+                timeout=is_timeout_error(exc),
+            )
+            raise
+        timer.finish(
+            success=True,
+            provider=result.provider,
+            model=result.model,
+            metadata={"row_count": result.row_count},
+        )
+        return result
+
+    async def _answer(
         self,
         question: str,
         access: AccessContext,

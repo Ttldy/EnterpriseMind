@@ -4,6 +4,12 @@ from app.model_gateway.contracts import (
     ModelProvider,
     ModelRequest,
 )
+from app.monitoring.contracts import MonitorRecorder
+from app.monitoring.instrumentation import (
+    OperationTimer,
+    exception_error_code,
+    is_timeout_error,
+)
 
 
 class SensitiveModelUnavailable(RuntimeError):
@@ -16,12 +22,60 @@ class ModelGateway:
         local: ModelProvider,
         external: ModelProvider,
         allow_external_for_internal: bool = False,
+        monitor: MonitorRecorder | None = None,
     ) -> None:
         self._local = local
         self._external = external
         self._allow_external_for_internal = allow_external_for_internal
+        self._monitor = monitor
 
     async def generate(
+        self,
+        request: ModelRequest,
+        sensitivity: Sensitivity,
+    ) -> GatewayResponse:
+        timer = OperationTimer(
+            self._monitor,
+            component="model_gateway",
+            operation="generate",
+        )
+        try:
+            response = await self._generate(
+                request,
+                sensitivity,
+            )
+        except Exception as exc:
+            timer.finish(
+                success=False,
+                error_code=exception_error_code(exc),
+                timeout=is_timeout_error(exc),
+                provider=(
+                    "ollama"
+                    if sensitivity is not Sensitivity.PUBLIC
+                    else None
+                ),
+                metadata={
+                    "sensitivity": sensitivity.value,
+                    "external_sent": False,
+                },
+            )
+            raise
+        timer.finish(
+            success=True,
+            provider=response.provider,
+            model=response.model,
+            fallback=(
+                response.route_reason
+                == "external_failed_fallback_local"
+            ),
+            metadata={
+                "sensitivity": sensitivity.value,
+                "external_sent": response.external_sent,
+            },
+        )
+        return response
+
+    async def _generate(
         self,
         request: ModelRequest,
         sensitivity: Sensitivity,

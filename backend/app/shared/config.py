@@ -102,6 +102,12 @@ class Settings(BaseSettings):
     tool_circuit_recovery_seconds: int = 30
     composite_agent_enabled: bool = True
     monitor_enabled: bool = True
+    monitor_window_minutes: int = 5
+    monitor_latency_warning_ms: int = 2000
+    monitor_queue_max_size: int = 1000
+    monitor_batch_size: int = 50
+    monitor_flush_interval_seconds: float = 1.0
+    monitor_event_retention_days: int = 7
     benchmark_output_dir: Path = Path("evaluation/reports")
     benchmark_judge_enabled: bool = True
     benchmark_judge_minimum_score: float = 0.75

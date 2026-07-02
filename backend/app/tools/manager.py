@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from app.agents.contracts import Sensitivity
+from app.monitoring.context import current_trace_id
+from app.monitoring.contracts import MonitorEvent, MonitorRecorder
 from app.tools.contracts import (
     EnterpriseTool,
     ToolContext,
@@ -63,6 +65,7 @@ class EnterpriseToolManager:
         default_cache_ttl_seconds: int = 30,
         circuit_failure_threshold: int = 3,
         circuit_recovery_seconds: int = 30,
+        monitor: MonitorRecorder | None = None,
     ) -> None:
         self._tools: dict[str, EnterpriseTool] = {}
         self._cache: dict[str, tuple[object, float]] = {}
@@ -71,6 +74,7 @@ class EnterpriseToolManager:
         self._default_cache_ttl_seconds = default_cache_ttl_seconds
         self._circuit_failure_threshold = circuit_failure_threshold
         self._circuit_recovery_seconds = circuit_recovery_seconds
+        self._monitor = monitor
 
     def register(
         self,
@@ -83,6 +87,45 @@ class EnterpriseToolManager:
         )
 
     async def execute(
+        self,
+        name: str,
+        payload: dict[str, object],
+        context: ToolContext,
+    ) -> ToolResult:
+        result = await self._execute(
+            name,
+            payload,
+            context,
+        )
+        if self._monitor is not None:
+            self._monitor.record(
+                MonitorEvent(
+                    trace_id=(
+                        context.trace_id
+                        or current_trace_id()
+                    ),
+                    component="tool_manager",
+                    operation=name,
+                    success=result.success,
+                    latency_ms=result.latency_ms,
+                    error_code=result.error_code,
+                    timeout=(
+                        result.error_code == "timeout"
+                        or bool(
+                            result.metadata.get(
+                                "tool_timeout"
+                            )
+                        )
+                    ),
+                    cache_hit=result.cache_hit,
+                    fallback=result.fallback_used,
+                    circuit_open=result.circuit_open,
+                    metadata={"tool_name": name},
+                )
+            )
+        return result
+
+    async def _execute(
         self,
         name: str,
         payload: dict[str, object],

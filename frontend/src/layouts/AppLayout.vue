@@ -42,6 +42,9 @@ async function logout(): Promise<void> {
           <el-menu-item index="/admin/evaluation">
             Prompt 与评测
           </el-menu-item>
+          <el-menu-item index="/admin/monitoring">
+            运行监控
+          </el-menu-item>
           <el-menu-item index="/admin/traces">
             请求追踪
           </el-menu-item>

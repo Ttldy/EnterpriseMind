@@ -51,6 +51,14 @@ const router = createRouter({
           meta: { admin: true },
         },
         {
+          path: "admin/monitoring",
+          component: () =>
+            import(
+              "@/modules/admin/monitoring/MonitoringView.vue"
+            ),
+          meta: { admin: true },
+        },
+        {
           path: "admin/traces",
           component: () =>
             import(

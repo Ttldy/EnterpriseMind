@@ -1,121 +1,141 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+import logging
+from typing import Protocol
+
+from app.monitoring.contracts import MonitorEvent
+
+logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class ComponentHealth:
-    component: str
-    success_rate: float
-    average_latency_ms: float
-    health_score: float
-    monitor_penalty: float
-    warning: bool
-    reason: str
+class MonitorBatchWriter(Protocol):
+    async def write(
+        self,
+        events: list[MonitorEvent],
+    ) -> None: ...
+
+
+class NullMonitorWriter:
+    async def write(
+        self,
+        events: list[MonitorEvent],
+    ) -> None:
+        del events
 
 
 class MonitoringService:
     def __init__(
         self,
-        latency_warning_ms: int = 2000,
+        writer: MonitorBatchWriter | None = None,
+        *,
+        enabled: bool = True,
+        queue_max_size: int = 1000,
+        batch_size: int = 50,
+        flush_interval_seconds: float = 1.0,
     ) -> None:
-        self._latency_warning_ms = latency_warning_ms
-        self._events: dict[str, list[tuple[bool, int]]] = {}
-
-    def record(
-        self,
-        component: str,
-        success: bool,
-        latency_ms: int,
-    ) -> ComponentHealth:
-        values = self._events.setdefault(
-            component,
-            [],
+        self._writer = writer or NullMonitorWriter()
+        self._enabled = enabled
+        self._queue: asyncio.Queue[MonitorEvent] = asyncio.Queue(
+            maxsize=max(1, queue_max_size)
         )
-        values.append((success, latency_ms))
-        return self.health(component)
+        self._batch_size = max(1, batch_size)
+        self._flush_interval_seconds = max(
+            0.01,
+            flush_interval_seconds,
+        )
+        self._stop_requested = asyncio.Event()
+        self._consumer_task: asyncio.Task[None] | None = None
+        self._dropped_events = 0
 
-    def health(
-        self,
-        component: str,
-    ) -> ComponentHealth:
-        values = self._events.get(component, [])
-        if not values:
-            return ComponentHealth(
-                component=component,
-                success_rate=1.0,
-                average_latency_ms=0.0,
-                health_score=1.0,
-                monitor_penalty=0.0,
-                warning=False,
-                reason="healthy",
+    @property
+    def queue_size(self) -> int:
+        return self._queue.qsize()
+
+    @property
+    def dropped_events(self) -> int:
+        return self._dropped_events
+
+    @property
+    def is_running(self) -> bool:
+        return (
+            self._consumer_task is not None
+            and not self._consumer_task.done()
+        )
+
+    def record(self, event: MonitorEvent) -> bool:
+        if not self._enabled:
+            return False
+        try:
+            self._queue.put_nowait(event)
+        except asyncio.QueueFull:
+            self._dropped_events += 1
+            logger.warning(
+                "monitor event dropped because queue is full",
+                extra={"component": event.component},
             )
+            return False
+        return True
 
-        success_rate = sum(1 for success, _ in values if success) / len(values)
-        average_latency = sum(latency for _, latency in values) / len(values)
-        latency_penalty = min(
-            0.5,
-            average_latency / max(self._latency_warning_ms, 1) * 0.25,
-        )
-        failure_penalty = (1.0 - success_rate) * 0.6
-        penalty = min(
-            1.0,
-            failure_penalty + latency_penalty,
-        )
-        warning = (
-            success_rate < 1.0
-            or average_latency >= self._latency_warning_ms
-        )
-        reason = (
-            "failure_or_latency_warning"
-            if warning
-            else "healthy"
-        )
-        return ComponentHealth(
-            component=component,
-            success_rate=success_rate,
-            average_latency_ms=average_latency,
-            health_score=max(0.0, 1.0 - penalty),
-            monitor_penalty=penalty,
-            warning=warning,
-            reason=reason,
+    async def start(self) -> None:
+        if not self._enabled or self.is_running:
+            return
+        self._stop_requested.clear()
+        self._consumer_task = asyncio.create_task(
+            self._consume(),
+            name="monitor-event-consumer",
         )
 
-    def evaluate_question(
+    async def stop(
         self,
-        question: str,
-    ) -> ComponentHealth:
-        normalized = question.lower()
-        if "超时" in normalized or "timeout" in normalized:
-            return ComponentHealth(
-                component="simulated_tool",
-                success_rate=0.0,
-                average_latency_ms=float(self._latency_warning_ms),
-                health_score=0.35,
-                monitor_penalty=0.65,
-                warning=True,
-                reason="simulated_timeout",
+        timeout_seconds: float = 3.0,
+    ) -> None:
+        task = self._consumer_task
+        if task is None:
+            return
+        self._stop_requested.set()
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(task),
+                timeout=max(0.01, timeout_seconds),
             )
-        if (
-            "circuit open" in normalized
-            or "连续失败" in normalized
-            or "熔断" in normalized
+        except TimeoutError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        finally:
+            self._consumer_task = None
+
+    async def _consume(self) -> None:
+        while (
+            not self._stop_requested.is_set()
+            or not self._queue.empty()
         ):
-            return ComponentHealth(
-                component="simulated_tool",
-                success_rate=0.0,
-                average_latency_ms=0.0,
-                health_score=0.25,
-                monitor_penalty=0.75,
-                warning=True,
-                reason="simulated_circuit_open",
+            batch = await self._next_batch()
+            if not batch:
+                continue
+            try:
+                await self._writer.write(batch)
+            except Exception:
+                logger.exception(
+                    "monitor event batch write failed",
+                    extra={"event_count": len(batch)},
+                )
+            finally:
+                for _ in batch:
+                    self._queue.task_done()
+
+    async def _next_batch(self) -> list[MonitorEvent]:
+        try:
+            first = await asyncio.wait_for(
+                self._queue.get(),
+                timeout=self._flush_interval_seconds,
             )
-        return ComponentHealth(
-            component="question",
-            success_rate=1.0,
-            average_latency_ms=0.0,
-            health_score=1.0,
-            monitor_penalty=0.0,
-            warning=False,
-            reason="healthy",
-        )
+        except TimeoutError:
+            return []
+        batch = [first]
+        while len(batch) < self._batch_size:
+            try:
+                batch.append(self._queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        return batch

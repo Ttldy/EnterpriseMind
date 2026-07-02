@@ -40,7 +40,13 @@ from app.model_gateway.sensitivity import (
     classify_question,
     highest_sensitivity,
 )
-from app.monitoring.service import MonitoringService
+from app.monitoring.context import current_trace_id
+from app.monitoring.contracts import MonitorEvent, MonitorRecorder
+from app.monitoring.instrumentation import (
+    OperationTimer,
+    exception_error_code,
+    is_timeout_error,
+)
 from app.tools.contracts import ToolContext, ToolResult
 
 
@@ -73,7 +79,7 @@ class AgentOrchestrator:
         tool_manager: ToolManagerLike | None = None,
         composite_enabled: bool = False,
         composite_planner: CompositeTaskPlanner | None = None,
-        monitor: MonitoringService | None = None,
+        monitor: MonitorRecorder | None = None,
     ) -> None:
         self._router = router
         self._gateway = gateway
@@ -91,51 +97,83 @@ class AgentOrchestrator:
         message: str,
         access: AccessContext,
     ) -> OrchestratorResult:
+        timer = OperationTimer(
+            self._monitor,
+            component="orchestrator",
+            operation="run",
+        )
+        try:
+            result = await self._run(message, access)
+        except Exception as exc:
+            timer.finish(
+                success=False,
+                error_code=exception_error_code(exc),
+                timeout=is_timeout_error(exc),
+            )
+            raise
+        business_outcome = result.metadata.get(
+            "business_outcome"
+        )
+        timer.finish(
+            success=True,
+            error_code=(
+                str(business_outcome)
+                if business_outcome
+                else None
+            ),
+            agent=result.agent.value,
+            provider=result.provider,
+            model=result.model,
+            metadata={
+                "refused": result.refused,
+                "sensitivity": result.sensitivity.value,
+                **(
+                    {"business_outcome": business_outcome}
+                    if business_outcome
+                    else {}
+                ),
+            },
+        )
+        return result
+
+    async def _run(
+        self,
+        message: str,
+        access: AccessContext,
+    ) -> OrchestratorResult:
         if self._composite_enabled:
             plan = self._composite_planner.plan(message)
             if plan is not None:
-                return self._with_monitor_metadata(
+                return await self._run_composite_query(
                     message,
-                    await self._run_composite_query(
-                        message,
-                        access,
-                        plan,
-                    ),
+                    access,
+                    plan,
                 )
 
         route = await self._route(message)
 
         if route.agent is AgentType.CLARIFICATION:
-            return self._with_monitor_metadata(
-                message,
-                OrchestratorResult(
-                    answer="请补充问题所属领域和具体需求。",
-                    agent=route.agent,
-                    intent=route.intent,
-                    model="none",
-                    sensitivity=route.sensitivity,
-                ),
+            return OrchestratorResult(
+                answer="请补充问题所属领域和具体需求。",
+                agent=route.agent,
+                intent=route.intent,
+                model="none",
+                sensitivity=route.sensitivity,
             )
 
         if route.agent is AgentType.DATA_ANALYST:
-            return self._with_monitor_metadata(
-                message,
-                await self._run_data_query(
-                    message,
-                    access,
-                    route,
-                ),
-            )
-
-        return self._with_monitor_metadata(
-            message,
-            await self._run_knowledge_query(
+            return await self._run_data_query(
                 message,
                 access,
-                route.agent,
-                route.intent,
-                route.sensitivity,
-            ),
+                route,
+            )
+
+        return await self._run_knowledge_query(
+            message,
+            access,
+            route.agent,
+            route.intent,
+            route.sensitivity,
         )
 
     async def _run_composite_query(
@@ -247,6 +285,9 @@ class AgentOrchestrator:
                 model="none",
                 sensitivity=Sensitivity.SENSITIVE,
                 refused=True,
+                metadata={
+                    "business_outcome": "permission_denied"
+                },
             )
         except (
             SqlGenerationError,
@@ -259,6 +300,9 @@ class AgentOrchestrator:
                 model="none",
                 sensitivity=Sensitivity.SENSITIVE,
                 refused=True,
+                metadata={
+                    "business_outcome": "unsafe_sql_rejected"
+                },
             )
         except SensitiveModelUnavailable:
             return OrchestratorResult(
@@ -271,6 +315,11 @@ class AgentOrchestrator:
                 model="none",
                 sensitivity=Sensitivity.SENSITIVE,
                 refused=True,
+                metadata={
+                    "business_outcome": (
+                        "sensitive_model_unavailable"
+                    )
+                },
             )
 
         return OrchestratorResult(
@@ -315,7 +364,12 @@ class AgentOrchestrator:
                 model="none",
                 sensitivity=route_sensitivity,
                 refused=True,
-                metadata=tool_metadata,
+                metadata={
+                    **tool_metadata,
+                    "business_outcome": (
+                        "evidence_insufficient"
+                    ),
+                },
             )
 
         question_decision = classify_question(message)
@@ -365,6 +419,12 @@ class AgentOrchestrator:
                 model="none",
                 sensitivity=final_sensitivity,
                 refused=True,
+                metadata={
+                    **tool_metadata,
+                    "business_outcome": (
+                        "sensitive_model_unavailable"
+                    ),
+                },
             )
 
         answer = response.text
@@ -420,10 +480,33 @@ class AgentOrchestrator:
         self,
         message: str,
     ) -> RouteResult:
-        result = self._router.route(message)
-        if inspect.isawaitable(result):
-            return cast(RouteResult, await result)
-        return result
+        timer = OperationTimer(
+            self._monitor,
+            component="intent_router",
+            operation="route",
+        )
+        try:
+            result = self._router.route(message)
+            resolved = (
+                cast(RouteResult, await result)
+                if inspect.isawaitable(result)
+                else result
+            )
+        except Exception as exc:
+            timer.finish(
+                success=False,
+                error_code=exception_error_code(exc),
+                timeout=is_timeout_error(exc),
+            )
+            raise
+        timer.finish(
+            success=True,
+            agent=resolved.agent.value,
+            metadata={
+                "sensitivity": resolved.sensitivity.value
+            },
+        )
+        return resolved
 
     async def _retrieve_knowledge(
         self,
@@ -447,6 +530,7 @@ class AgentOrchestrator:
                 user_id=access.user_id,
                 department=access.department,
                 roles=access.roles,
+                trace_id=current_trace_id(),
             ),
         )
         metadata = dict(tool_result.metadata)
@@ -461,43 +545,23 @@ class AgentOrchestrator:
             access,
         )
         metadata["tool_fallback"] = True
+        if self._monitor is not None:
+            self._monitor.record(
+                MonitorEvent(
+                    trace_id=current_trace_id(),
+                    component="tool_manager",
+                    operation="knowledge_search_fallback",
+                    success=True,
+                    latency_ms=tool_result.latency_ms,
+                    error_code=tool_result.error_code,
+                    timeout=(
+                        tool_result.error_code == "timeout"
+                    ),
+                    fallback=True,
+                    circuit_open=tool_result.circuit_open,
+                    metadata={
+                        "tool_name": "knowledge_search"
+                    },
+                )
+            )
         return fallback, metadata
-
-    def _with_monitor_metadata(
-        self,
-        message: str,
-        result: OrchestratorResult,
-    ) -> OrchestratorResult:
-        if self._monitor is None:
-            return result
-        health = self._monitor.evaluate_question(message)
-        metadata = dict(result.metadata)
-        metadata.update(
-            {
-                "monitor_warning_detected": health.warning,
-                "monitor_reason": health.reason,
-                "monitor_penalty_delta": health.monitor_penalty,
-                "health_score": health.health_score,
-            }
-        )
-        if health.reason == "simulated_timeout":
-            metadata["tool_timeout"] = True
-            metadata["tool_fallback"] = True
-        if health.reason == "simulated_circuit_open":
-            metadata["tool_circuit_open"] = True
-            metadata["tool_fallback"] = True
-        return OrchestratorResult(
-            answer=result.answer,
-            agent=result.agent,
-            intent=result.intent,
-            model=result.model,
-            sensitivity=result.sensitivity,
-            provider=result.provider,
-            route_reason=result.route_reason,
-            external_sent=result.external_sent,
-            citations=result.citations,
-            refused=result.refused,
-            sql=result.sql,
-            row_count=result.row_count,
-            metadata=metadata,
-        )

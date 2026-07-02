@@ -85,7 +85,8 @@ async def test_benchmark_runner_loads_cases_and_aggregates_metrics(tmp_path) -> 
             '{"case_id":"monitor-warning","category":"quality",'
             '"benchmark_module":"monitoring","prompt_key":"it_agent",'
             '"question":"模拟工具延迟升高",'
-            '"expected_monitor_warning":true}\n'
+            '"expected_monitor_warning":true,'
+            '"expected_tool_timeout":true}\n'
         ),
         encoding="utf-8",
     )
@@ -154,3 +155,30 @@ def test_benchmark_profile_exposes_expected_feature_switches() -> None:
         "COMPOSITE_AGENT_ENABLED": "true",
         "MONITOR_ENABLED": "true",
     }
+
+
+@pytest.mark.asyncio
+async def test_monitoring_fixture_never_uses_question_keywords(tmp_path) -> None:
+    case_dir = tmp_path / "cases"
+    case_dir.mkdir()
+    (case_dir / "monitoring.jsonl").write_text(
+        (
+            '{"case_id":"keyword-safe","category":"quality",'
+            '"benchmark_module":"monitoring","prompt_key":"it_agent",'
+            '"question":"用户只是在讨论超时和熔断两个词",'
+            '"expected_monitor_warning":false,'
+            '"expected_tool_timeout":false,'
+            '"expected_tool_fallback":false,'
+            '"expected_tool_circuit_open":false}\n'
+        ),
+        encoding="utf-8",
+    )
+    report = await BenchmarkRunner(
+        executor=FakeExecutor(),
+        case_directory=case_dir,
+        prompt_content="prompt",
+    ).run(BenchmarkProfile.enhanced())
+
+    assert report["metrics"]["monitor_warning_detection_accuracy"] == 1.0
+    assert report["metrics"]["tool_timeout_count"] == 0.0
+    assert "受控 MonitorEvent fixture" in report["notes"][0]

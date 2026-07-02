@@ -62,8 +62,11 @@ from app.model_gateway.external import (
 )
 from app.model_gateway.gateway import ModelGateway
 from app.model_gateway.ollama import OllamaProvider
+from app.monitoring.api import router as monitoring_router
+from app.monitoring.repository import PostgresMonitorWriter
 from app.monitoring.service import MonitoringService
 from app.shared.config import get_settings
+from app.shared.database import SessionFactory
 from app.shared.trace import TraceIdMiddleware
 from app.tools.builtins import KnowledgeSearchTool
 from app.tools.manager import EnterpriseToolManager
@@ -72,6 +75,19 @@ from app.traces.api import router as traces_router
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    monitoring_service = (
+        MonitoringService(
+            writer=PostgresMonitorWriter(SessionFactory),
+            enabled=True,
+            queue_max_size=settings.monitor_queue_max_size,
+            batch_size=settings.monitor_batch_size,
+            flush_interval_seconds=(
+                settings.monitor_flush_interval_seconds
+            ),
+        )
+        if settings.monitor_enabled
+        else None
+    )
 
     qdrant_client = AsyncQdrantClient(url=settings.qdrant_url)
     embedding = OllamaEmbeddingProvider(
@@ -115,6 +131,7 @@ def create_app() -> FastAPI:
         local=local_provider,
         external=external_provider,
         allow_external_for_internal=(settings.allow_external_for_internal),
+        monitor=monitoring_service,
     )
     retrieval = RetrievalService(
         store=vector_store,
@@ -146,6 +163,7 @@ def create_app() -> FastAPI:
         recall_per_query=(
             settings.retrieval_recall_per_query
         ),
+        monitor=monitoring_service,
     )
     long_term_memory = LongTermMemoryService(
         store=memory_store,
@@ -160,6 +178,7 @@ def create_app() -> FastAPI:
         max_summary_chars=settings.memory_summary_max_chars,
         top_k=settings.memory_top_k,
         minimum_score=settings.memory_minimum_score,
+        monitor=monitoring_service,
     )
     tool_manager = None
     if settings.tool_manager_enabled:
@@ -174,16 +193,11 @@ def create_app() -> FastAPI:
             circuit_recovery_seconds=(
                 settings.tool_circuit_recovery_seconds
             ),
+            monitor=monitoring_service,
         )
         tool_manager.register(
             KnowledgeSearchTool(retrieval)
         )
-    monitoring_service = (
-        MonitoringService()
-        if settings.monitor_enabled
-        else None
-    )
-
     readonly_engine = create_readonly_engine(settings.readonly_database_url)
     readonly_executor = ReadOnlyExecutor(
         readonly_engine,
@@ -200,7 +214,16 @@ def create_app() -> FastAPI:
             parents=True,
             exist_ok=True,
         )
+        if monitoring_service is not None:
+            await monitoring_service.start()
         yield
+        if monitoring_service is not None:
+            await monitoring_service.stop(
+                timeout_seconds=max(
+                    1.0,
+                    settings.monitor_flush_interval_seconds * 3,
+                )
+            )
         await qdrant_client.close()
         await redis.aclose()
         await readonly_engine.dispose()
@@ -249,6 +272,7 @@ def create_app() -> FastAPI:
             executor=readonly_executor,
             gateway=gateway,
             max_rows=settings.sql_max_rows,
+            monitor=monitoring_service,
         )
 
     app.state.gateway = gateway
@@ -299,6 +323,10 @@ def create_app() -> FastAPI:
     )
     app.include_router(
         traces_router,
+        prefix="/api/v1",
+    )
+    app.include_router(
+        monitoring_router,
         prefix="/api/v1",
     )
     return app

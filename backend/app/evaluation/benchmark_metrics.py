@@ -51,7 +51,7 @@ def score_benchmark_case(
             == case.expected_tool_fallback
         )
     if case.expected_tool_circuit_open is not None:
-        metrics["tool_circuit_open_count"] = float(
+        metrics["tool_circuit_open_accuracy"] = float(
             bool(output.metadata.get("tool_circuit_open"))
             == case.expected_tool_circuit_open
         )
@@ -80,4 +80,12 @@ def score_benchmark_case(
         metrics["monitor_penalty_delta"] = float(
             penalty_delta
         )
+    for key in (
+        "tool_timeout_count",
+        "tool_fallback_count",
+        "tool_circuit_open_count",
+    ):
+        value = output.metadata.get(key)
+        if isinstance(value, int | float):
+            metrics[key] = float(value)
     return metrics

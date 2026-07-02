@@ -54,6 +54,9 @@ async def run() -> None:
     from app.shared.database import SessionFactory
 
     settings = get_settings()
+    # Benchmark events are evaluated by the controlled fixture below and must
+    # not pollute the online PostgreSQL monitoring window.
+    settings.monitor_enabled = False
     app = create_app()
     output = Path(args.output)
     output.parent.mkdir(

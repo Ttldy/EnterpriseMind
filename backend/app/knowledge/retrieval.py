@@ -13,6 +13,12 @@ from app.knowledge.query_rewriter import NoopQueryRewriter
 from app.knowledge.reranker import ScoreReranker
 from app.knowledge.schemas import Citation
 from app.knowledge.vector_store import VectorHit
+from app.monitoring.contracts import MonitorRecorder
+from app.monitoring.instrumentation import (
+    OperationTimer,
+    exception_error_code,
+    is_timeout_error,
+)
 
 
 class SearchableVectorStore(Protocol):
@@ -67,6 +73,7 @@ class RetrievalService:
         gate: EvidenceGate | None = None,
         max_queries: int = 4,
         recall_per_query: int = 5,
+        monitor: MonitorRecorder | None = None,
     ) -> None:
         self._store = store
         self._minimum_score = minimum_score
@@ -78,6 +85,7 @@ class RetrievalService:
             1,
             recall_per_query,
         )
+        self._monitor = monitor
         self._gate = gate or EvidenceGate(
             full_answer_score=minimum_score,
             partial_answer_score=minimum_score,
@@ -98,6 +106,60 @@ class RetrievalService:
         return result.decision.citations
 
     async def retrieve(
+        self,
+        query: str,
+        access: AccessContext,
+        limit: int = 5,
+    ) -> EnhancedRetrievalResult:
+        timer = OperationTimer(
+            self._monitor,
+            component="retrieval",
+            operation="retrieve",
+        )
+        try:
+            result = await self._retrieve(
+                query,
+                access,
+                limit,
+            )
+        except Exception as exc:
+            timer.finish(
+                success=False,
+                error_code=exception_error_code(exc),
+                timeout=is_timeout_error(exc),
+            )
+            raise
+        timer.finish(
+            success=True,
+            error_code=(
+                "evidence_insufficient"
+                if result.decision.level.value
+                == "insufficient"
+                else None
+            ),
+            metadata={
+                **result.diagnostics,
+                "citation_count": len(
+                    result.decision.citations
+                ),
+                "evidence_level": (
+                    result.decision.level.value
+                ),
+                **(
+                    {
+                        "business_outcome": (
+                            "evidence_insufficient"
+                        )
+                    }
+                    if result.decision.level.value
+                    == "insufficient"
+                    else {}
+                ),
+            },
+        )
+        return result
+
+    async def _retrieve(
         self,
         query: str,
         access: AccessContext,

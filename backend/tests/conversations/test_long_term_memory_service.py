@@ -6,6 +6,7 @@ from app.conversations.memory_schemas import MemoryRecord, MemorySearchHit
 from app.conversations.memory_service import LongTermMemoryService
 from app.knowledge.access import AccessContext
 from app.model_gateway.contracts import GatewayResponse
+from app.monitoring.contracts import MonitorEvent
 
 ACCESS = AccessContext(
     user_id=7,
@@ -70,6 +71,15 @@ class FakeGateway:
             route_reason="test",
             external_sent=False,
         )
+
+
+class RecordingMonitor:
+    def __init__(self) -> None:
+        self.events: list[MonitorEvent] = []
+
+    def record(self, event: MonitorEvent) -> bool:
+        self.events.append(event)
+        return True
 
 
 @pytest.mark.asyncio
@@ -170,6 +180,64 @@ async def test_qdrant_failure_does_not_break_memory_read_or_write() -> None:
 
     assert context == ""
     assert store.records == []
+
+
+@pytest.mark.asyncio
+async def test_memory_failures_are_recorded_without_content_and_still_fallback() -> None:
+    store = FakeStore()
+    store.fail_search = True
+    monitor = RecordingMonitor()
+    service = LongTermMemoryService(
+        store=store,
+        gateway=FakeGateway(),
+        enabled=True,
+        trigger_messages=1,
+        recent_messages=8,
+        max_summary_chars=1200,
+        top_k=3,
+        minimum_score=0.25,
+        monitor=monitor,
+    )
+
+    context = await service.retrieve_context("secret VPN question", ACCESS)
+
+    assert context == ""
+    saved = monitor.events[0]
+    assert saved.component == "long_term_memory"
+    assert saved.operation == "retrieve"
+    assert saved.success is False
+    assert saved.metadata == {}
+
+
+@pytest.mark.asyncio
+async def test_disabled_memory_records_skipped_without_summary() -> None:
+    monitor = RecordingMonitor()
+    service = LongTermMemoryService(
+        store=FakeStore(),
+        gateway=FakeGateway(),
+        enabled=False,
+        trigger_messages=1,
+        recent_messages=8,
+        max_summary_chars=1200,
+        top_k=3,
+        minimum_score=0.25,
+        monitor=monitor,
+    )
+
+    await service.maybe_store_after_turn(
+        access=ACCESS,
+        conversation_id=1,
+        message_ids=(1, 2),
+        recent_messages=[CachedMessage("user", "secret content")],
+        sensitivity=Sensitivity.INTERNAL,
+        sql=None,
+    )
+
+    assert monitor.events[0].success is True
+    assert monitor.events[0].metadata == {
+        "skipped": True,
+        "skip_reason": "disabled_or_empty",
+    }
 
 
 @pytest.mark.asyncio

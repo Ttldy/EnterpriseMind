@@ -8,6 +8,12 @@ from app.conversations.memory_schemas import (
 )
 from app.knowledge.access import AccessContext
 from app.model_gateway.contracts import GatewayResponse, ModelRequest
+from app.monitoring.contracts import MonitorRecorder
+from app.monitoring.instrumentation import (
+    OperationTimer,
+    exception_error_code,
+    is_timeout_error,
+)
 
 
 class LongTermMemoryStore(Protocol):
@@ -60,6 +66,7 @@ class LongTermMemoryService:
         max_summary_chars: int,
         top_k: int,
         minimum_score: float,
+        monitor: MonitorRecorder | None = None,
     ) -> None:
         self._store = store
         self._gateway = gateway
@@ -69,13 +76,26 @@ class LongTermMemoryService:
         self._max_summary_chars = max_summary_chars
         self._top_k = top_k
         self._minimum_score = minimum_score
+        self._monitor = monitor
 
     async def retrieve_context(
         self,
         query: str,
         access: AccessContext,
     ) -> str:
+        timer = OperationTimer(
+            self._monitor,
+            component="long_term_memory",
+            operation="retrieve",
+        )
         if not self._enabled:
+            timer.finish(
+                success=True,
+                metadata={
+                    "skipped": True,
+                    "skip_reason": "disabled",
+                },
+            )
             return ""
         try:
             hits = await self._store.search_private(
@@ -84,10 +104,22 @@ class LongTermMemoryService:
                 limit=self._top_k,
                 minimum_score=self._minimum_score,
             )
-        except Exception:
+        except Exception as exc:
+            timer.finish(
+                success=False,
+                error_code=exception_error_code(exc),
+                timeout=is_timeout_error(exc),
+            )
             return ""
 
         if not hits:
+            timer.finish(
+                success=True,
+                metadata={
+                    "skipped": True,
+                    "skip_reason": "no_hits",
+                },
+            )
             return ""
 
         lines = [
@@ -95,6 +127,7 @@ class LongTermMemoryService:
             "如果历史上下文与当前知识库证据或数据库结果冲突，必须以当前证据为准。",
         ]
         lines.extend(f"- {hit.text}" for hit in hits)
+        timer.finish(success=True)
         return "\n".join(lines)
 
     async def maybe_store_after_turn(
@@ -106,10 +139,29 @@ class LongTermMemoryService:
         sensitivity: Sensitivity,
         sql: str | None,
     ) -> None:
+        timer = OperationTimer(
+            self._monitor,
+            component="long_term_memory",
+            operation="store",
+        )
         if not self._enabled or not recent_messages:
+            timer.finish(
+                success=True,
+                metadata={
+                    "skipped": True,
+                    "skip_reason": "disabled_or_empty",
+                },
+            )
             return
         selected_messages = recent_messages[-self._recent_messages :]
         if not self._should_store(selected_messages):
+            timer.finish(
+                success=True,
+                metadata={
+                    "skipped": True,
+                    "skip_reason": "strategy_not_triggered",
+                },
+            )
             return
 
         memory_type = self._memory_type(selected_messages)
@@ -135,6 +187,13 @@ class LongTermMemoryService:
             )
             summary = response.text.strip()
             if not summary:
+                timer.finish(
+                    success=True,
+                    metadata={
+                        "skipped": True,
+                        "skip_reason": "empty_summary",
+                    },
+                )
                 return
             await self._store.upsert(
                 MemoryRecord(
@@ -148,7 +207,13 @@ class LongTermMemoryService:
                     text=summary,
                 )
             )
-        except Exception:
+            timer.finish(success=True)
+        except Exception as exc:
+            timer.finish(
+                success=False,
+                error_code=exception_error_code(exc),
+                timeout=is_timeout_error(exc),
+            )
             return
 
     def _should_store(
