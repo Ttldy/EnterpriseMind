@@ -30,10 +30,10 @@ flowchart LR
     C -->|数据统计| E[只读 SQL 链路]
     D --> F[模型路由]
     E --> F
-    F --> G[返回回答 + 引用 + Trace]
-    G --> H[会话事实(PostgreSQL)]
-    G --> I[短期缓存(Redis)]
-    G --> J[长期记忆(Qdrant)]
+    F --> G[返回回答、引用与 Trace]
+    G --> H[会话事实 / PostgreSQL]
+    G --> I[短期缓存 / Redis]
+    G --> J[长期记忆 / Qdrant]
     G --> K[监控事件与健康评分]
 ```
 
